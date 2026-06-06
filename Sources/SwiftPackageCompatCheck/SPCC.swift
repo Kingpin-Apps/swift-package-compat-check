@@ -9,7 +9,7 @@ public struct SPCC: AsyncParsableCommand {
             swiftpackageindex.com runs, so you can validate cross-platform compatibility \
             without pushing a tag and waiting for SPI's CI queue.
             """,
-        version: "0.0.1",
+        version: Version.number,
         subcommands: [
             RunCommand.self,
             CleanCommand.self,

@@ -24,6 +24,7 @@ let package = Package(
         .package(url: "https://github.com/tuist/Command.git", .upToNextMinor(from: "0.14.2")),
         .package(url: "https://github.com/tuist/Noora", .upToNextMajor(from: "0.56.0")),
         .package(url: "https://github.com/Kolos65/Mockable", .upToNextMinor(from: "0.6.2")),
+        .package(url: "https://github.com/mgacy/swift-version-file-plugin", from: "0.2.1"),
     ],
     targets: [
         .target(
