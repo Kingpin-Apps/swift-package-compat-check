@@ -29,6 +29,10 @@ test:
 hello:
     swift run spcc run -p macos-spm,linux -s 6.3 Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
 
+# Same as `just hello` but exercises --test (HelloWorld fixture has a real test target)
+hello-test:
+    swift run spcc run --test -p macos-spm,linux -s 6.3 Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
+
 # Full 34-cell matrix against HelloWorld (slow on first run; pulls all SPI images)
 hello-full:
     swift run spcc run Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
