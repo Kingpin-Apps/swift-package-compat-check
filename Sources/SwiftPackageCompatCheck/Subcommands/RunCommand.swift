@@ -213,9 +213,48 @@ struct RunCommand: AsyncParsableCommand {
             )
         }
 
+        printFailureSummary(
+            outcomes: outcomes,
+            platforms: platforms,
+            swiftVersions: swiftVersions
+        )
+
         let failed = outcomes.values.contains { $0.state == .fail }
         if failed {
             throw ExitCode.failure
+        }
+    }
+
+    /// Print a "Failed cells:" footer listing each `.fail` outcome with its log
+    /// path. Cells are emitted in matrix order (swift version then platform) so
+    /// the listing visually mirrors the table that just rendered above it. Safe
+    /// in all three output modes — live, streaming, and quiet — because it runs
+    /// AFTER Noora's stateful renderer has finished its last erase/redraw cycle,
+    /// so the cursor sits naturally below the matrix.
+    private func printFailureSummary(
+        outcomes: [BuildPair: CellOutcome],
+        platforms: [Platform],
+        swiftVersions: [SwiftVersion]
+    ) {
+        var failures: [(pair: BuildPair, logPath: URL)] = []
+        for swiftVersion in swiftVersions {
+            for platform in platforms {
+                let pair = BuildPair(platform: platform, swiftVersion: swiftVersion)
+                guard let outcome = outcomes[pair], outcome.state == .fail else { continue }
+                guard let logPath = outcome.logPath else { continue }
+                failures.append((pair, logPath))
+            }
+        }
+        guard !failures.isEmpty else { return }
+
+        let labels = failures.map { "\($0.pair.platform.rawValue) × Swift \($0.pair.swiftVersion.rawValue)" }
+        let width = labels.map(\.count).max() ?? 0
+
+        print("")
+        print("Failed cells (\(failures.count)):")
+        for (i, (_, logPath)) in failures.enumerated() {
+            let padded = labels[i].padding(toLength: width, withPad: " ", startingAt: 0)
+            print("  ✗ \(padded)  \(logPath.path)")
         }
     }
 
