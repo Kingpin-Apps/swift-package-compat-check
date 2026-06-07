@@ -11,9 +11,27 @@ struct CellStateSymbolTests {
         #expect(strings.count == 5)
     }
 
-    @Test(".running maps to a horizontal ellipsis (⋯)")
-    func runningSymbol() {
-        #expect(CellState.running.symbol == "⋯")
+    @Test(".running rotates through 10 braille frames (Noora's spinner set)")
+    func runningSymbolRotates() {
+        let frame0 = CellState.running.symbol(frame: 0)
+        let frame1 = CellState.running.symbol(frame: 1)
+        let frame9 = CellState.running.symbol(frame: 9)
+        let frame10 = CellState.running.symbol(frame: 10)  // wraps to frame 0
+        let frameNeg = CellState.running.symbol(frame: -1) // wraps cleanly too
+        #expect(frame0 == "⠋")
+        #expect(frame1 == "⠙")
+        #expect(frame9 == "⠏")
+        #expect(frame10 == frame0)
+        #expect(frameNeg == "⠏")
+        #expect(CellState.runningFrames.count == 10)
+    }
+
+    @Test("Non-running states ignore the frame parameter")
+    func nonRunningStatesStable() {
+        #expect(CellState.pending.symbol(frame: 5) == "?")
+        #expect(CellState.skipped.symbol(frame: 5) == "—")
+        #expect(CellState.pass.symbol(frame: 5) == "✓")
+        #expect(CellState.fail.symbol(frame: 5) == "✗")
     }
 }
 
