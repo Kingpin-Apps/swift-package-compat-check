@@ -7,8 +7,14 @@ struct RunCommand: AsyncParsableCommand {
         abstract: "Run the SPI build matrix against a package."
     )
 
-    @Argument(help: "Path to the Swift package. Defaults to the current directory.")
-    var path: String = "."
+    @Argument(help: "Path to the Swift package. Defaults to the current directory. Equivalent to --path.")
+    var pathArgument: String = "."
+
+    @Option(
+        name: [.customShort("P"), .customLong("path")],
+        help: "Path to the Swift package (alternative to the positional argument). Wins if both are given."
+    )
+    var pathOption: String?
 
     @Option(
         name: [.short, .customLong("swift")],
@@ -113,6 +119,7 @@ struct RunCommand: AsyncParsableCommand {
     var quiet: Bool = false
 
     func run() async throws {
+        let path = pathOption ?? pathArgument
         let swiftVersions = try parseSwiftVersions(swiftRaw)
         let platforms = try parsePlatforms(platformsRaw)
 
