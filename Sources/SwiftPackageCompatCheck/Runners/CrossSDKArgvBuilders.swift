@@ -29,9 +29,11 @@ public enum CrossSDKArgvBuilders {
         packageBasename: String,
         swiftVersion: SwiftVersion,
         image: String,
-        pullPolicy: String,
+        pullPolicy: PullPolicy,
         cellLabel: String? = nil,
-        runTests: Bool = false
+        runTests: Bool = false,
+        runtime: ContainerRuntime = .docker,
+        useRosetta: Bool = false
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -44,7 +46,9 @@ public enum CrossSDKArgvBuilders {
             sdkBuildArg: "aarch64-unknown-linux-android28",
             sdkFallbackURL: "",
             cellLabel: cellLabel,
-            runTests: runTests
+            runTests: runTests,
+            runtime: runtime,
+            useRosetta: useRosetta
         )
     }
 
@@ -53,10 +57,12 @@ public enum CrossSDKArgvBuilders {
         packageBasename: String,
         swiftVersion: SwiftVersion,
         image: String,
-        pullPolicy: String,
+        pullPolicy: PullPolicy,
         fallbackURL: String?,
         cellLabel: String? = nil,
-        runTests: Bool = false
+        runTests: Bool = false,
+        runtime: ContainerRuntime = .docker,
+        useRosetta: Bool = false
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -69,7 +75,9 @@ public enum CrossSDKArgvBuilders {
             sdkBuildArg: "swift-\(swiftVersion.rawValue)-RELEASE_wasm",
             sdkFallbackURL: fallbackURL ?? "",
             cellLabel: cellLabel,
-            runTests: runTests
+            runTests: runTests,
+            runtime: runtime,
+            useRosetta: useRosetta
         )
     }
 
@@ -79,23 +87,26 @@ public enum CrossSDKArgvBuilders {
         platform: Platform,
         swiftVersion: SwiftVersion,
         image: String,
-        pullPolicy: String,
+        pullPolicy: PullPolicy,
         sdkMatch: String,
         sdkBuildArg: String,
         sdkFallbackURL: String,
         cellLabel: String? = nil,
-        runTests: Bool = false
+        runTests: Bool = false,
+        runtime: ContainerRuntime = .docker,
+        useRosetta: Bool = false
     ) -> [String] {
         let volume = volumeName(
             packageBasename: packageBasename,
             platform: platform,
             swiftVersion: swiftVersion
         )
-        var argv: [String] = [
-            "docker", "run",
-            "--pull=\(pullPolicy)",
-            "--rm",
-            "--platform", "linux/amd64",
+        var argv: [String] = runtime.runArgvHead(
+            cellLabel: cellLabel ?? "",
+            pullPolicy: pullPolicy,
+            useRosetta: useRosetta
+        )
+        argv.append(contentsOf: [
             "-v", "\(packagePath.path):\(packageMountPath)",
             "-w", packageMountPath,
             "-v", "\(volume):\(scratchMountPath)",
@@ -106,7 +117,7 @@ public enum CrossSDKArgvBuilders {
             "-e", "SDK_BUILD_ARG=\(sdkBuildArg)",
             "-e", "SDK_FALLBACK_URL=\(sdkFallbackURL)",
             "-e", "SDK_ACTION=\(runTests ? "test" : "build")",
-        ]
+        ])
         if let label = cellLabel {
             argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
         }

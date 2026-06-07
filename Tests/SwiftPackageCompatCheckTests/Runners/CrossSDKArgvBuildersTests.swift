@@ -28,7 +28,7 @@ struct CrossSDKArgvBuildersTests {
             packageBasename: "swift-nacl",
             swiftVersion: .v6_3,
             image: "registry.gitlab.com/swiftpackageindex/spi-images:android-6.3-latest",
-            pullPolicy: "missing"
+            pullPolicy: .missing
         )
         #expect(argv.contains("SDK_BUILD_ARG=aarch64-unknown-linux-android28"))
         #expect(argv.contains("SDK_MATCH=android"))
@@ -44,7 +44,7 @@ struct CrossSDKArgvBuildersTests {
             packageBasename: "pkg",
             swiftVersion: .v6_3,
             image: "registry.gitlab.com/swiftpackageindex/spi-images:wasm-6.3-latest",
-            pullPolicy: "always",
+            pullPolicy: .always,
             fallbackURL: "https://example.com/sdk.zip"
         )
         #expect(argv.contains("SDK_BUILD_ARG=swift-6.3-RELEASE_wasm"))
@@ -60,14 +60,14 @@ struct CrossSDKArgvBuildersTests {
             packageBasename: "p",
             swiftVersion: .v6_3,
             image: "img",
-            pullPolicy: "missing"
+            pullPolicy: .missing
         )
         let testArgv = CrossSDKArgvBuilders.android(
             packagePath: URL(fileURLWithPath: "/x"),
             packageBasename: "p",
             swiftVersion: .v6_3,
             image: "img",
-            pullPolicy: "missing",
+            pullPolicy: .missing,
             runTests: true
         )
         #expect(buildArgv.contains("SDK_ACTION=build"))
@@ -97,6 +97,44 @@ struct CrossSDKArgvBuildersTests {
         #expect(script.contains("unexpected JSON message"))
         // Distinct exit codes: 0 success, 1 permanent, 2 transient.
         #expect(script.contains("Detected transient IPC error"))
+    }
+
+    @Test("runtime=.container: android argv swaps binary, drops --pull, adds --name; resolver body unchanged")
+    func androidContainerRuntime() {
+        let argv = CrossSDKArgvBuilders.android(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "swift-nacl",
+            swiftVersion: .v6_3,
+            image: "registry.gitlab.com/swiftpackageindex/spi-images:android-6.3-latest",
+            pullPolicy: .missing,
+            cellLabel: "20260607T120000-android-6.3",
+            runtime: .container
+        )
+        #expect(argv.first == "container")
+        #expect(!argv.contains { $0.hasPrefix("--pull=") })
+        #expect(argv.contains("--name"))
+        #expect(argv.contains("spcc-cell-20260607T120000-android-6.3"))
+        // The bash resolver tail is unchanged — runs inside the container.
+        #expect(argv.last == CrossSDKArgvBuilders.resolverScript)
+        // Cross-SDK env vars still threaded through.
+        #expect(argv.contains("SDK_BUILD_ARG=aarch64-unknown-linux-android28"))
+    }
+
+    @Test("runtime=.container: wasm argv preserves SDK fallback URL plumbing")
+    func wasmContainerRuntime() {
+        let argv = CrossSDKArgvBuilders.wasm(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "p",
+            swiftVersion: .v6_3,
+            image: "img",
+            pullPolicy: .missing,
+            fallbackURL: "https://example.com/sdk.zip",
+            cellLabel: "20260607T120000-wasm-6.3",
+            runtime: .container
+        )
+        #expect(argv.first == "container")
+        #expect(argv.contains("SDK_FALLBACK_URL=https://example.com/sdk.zip"))
+        #expect(argv.contains("--name"))
     }
 
     @Test("Resolver extracts a specific triple from a multi-arch bundle")

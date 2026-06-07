@@ -14,37 +14,10 @@ struct LogStreamer: Sendable {
     }
 
     /// Container-kill hook the timeout watchdog calls when a cell exceeds its
-    /// budget. Default invokes `docker kill --filter "label=spcc-cell=<label>"`
-    /// against any container the runner labelled. Tests override to keep the
-    /// `RecordingCommandRunner` shape consistent.
+    /// budget. Runners pick the concrete closure from
+    /// `ContainerRuntime.killClosure` based on whichever runtime they're
+    /// targeting.
     typealias KillHandler = @Sendable (String) async -> Void
-
-    static let defaultDockerKill: KillHandler = { label in
-        let runner = CommandRunner()
-        let ids = await Self.captureLines(
-            runner: runner,
-            arguments: ["docker", "ps", "--filter", "label=spcc-cell=\(label)", "-q"]
-        )
-        for id in ids {
-            _ = await Self.captureLines(runner: runner, arguments: ["docker", "kill", id])
-        }
-    }
-
-    private static func captureLines(
-        runner: any CommandRunning, arguments: [String]
-    ) async -> [String] {
-        var stdout = Data()
-        do {
-            for try await event in runner.run(arguments: arguments) {
-                if case .standardOutput(let bytes) = event {
-                    stdout.append(contentsOf: bytes)
-                }
-            }
-        } catch { return [] }
-        return String(data: stdout, encoding: .utf8)?
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init) ?? []
-    }
 
     enum Result: Sendable {
         case success(durationSeconds: Double)

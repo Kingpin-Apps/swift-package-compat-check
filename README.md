@@ -18,7 +18,7 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 | macOS       | 15+     | Required by `swift-configuration-toml`; matches the rest of the Kingpin Swift stack. |
 | Swift       | 6.3+    | `swift-tools-version: 6.3` and Swift 6 strict concurrency. |
 | Xcode       | 26.4+   | For `xcodebuild` cells. Multiple Xcodes can be selected per Swift version via `--xcode-6.X`. |
-| Docker      | Any modern release | For `linux`, `android`, `wasm` cells. Apple cells don't need it. |
+| Container runtime | Docker (any modern release) or [apple/container](https://github.com/apple/container) 0.12+ | For `linux`, `android`, `wasm` cells. Apple cells don't need either. Default is `docker`; pass `--container-runtime container` to opt into apple/container (experimental — see [Container runtime](#container-runtime) below). |
 
 ---
 
@@ -106,6 +106,26 @@ Apple cells use whichever Xcode `xcode-select` points at by default. Linux / And
 For full documentation including all flags, caching behaviour, and troubleshooting, see the **[`SwiftPackageCompatCheck` DocC catalog](Sources/SwiftPackageCompatCheck/SwiftPackageCompatCheck.docc/Documentation.md)**.
 
 ---
+
+## Container runtime
+
+Linux / Android / Wasm cells dispatch through a host-side container runtime. The default is `docker`. As of v0.4 you can opt into [apple/container](https://github.com/apple/container) (Apple Silicon, `Virtualization.framework`) via:
+
+```bash
+# CLI flag
+spcc run --container-runtime container
+
+# Or persist in .spi-compat.toml
+container_runtime = "container"
+```
+
+apple/container reuses the same SPI builder images and produces identical cell pass/fail in the bundled HelloWorld smoke test. Status against larger packages is still being validated (the swift-cardano-core parity gate) — until that lands, docker stays the default and apple/container is opt-in only. The qemu retry path in the cross-SDK resolver may become unnecessary under Rosetta translation; the resolver still runs it for now.
+
+Notable runtime differences:
+
+- apple/container has no `--pull` on `run`. spcc handles pulls as an explicit `container image pull` pre-step, deduped across concurrent cells.
+- apple/container has no `list --filter label=`. The timeout watchdog sets a deterministic `--name spcc-cell-<RUN_TS>-<platform>-<sv>` at launch and kills by name.
+- The macOS 15 minimum stays unchanged. apple/container's macOS-26-only features (container-to-container networking) aren't used by spcc.
 
 ## Caches
 

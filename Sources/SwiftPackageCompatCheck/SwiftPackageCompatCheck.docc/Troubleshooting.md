@@ -39,12 +39,16 @@ When you suspect a cell is genuinely stuck (not just slow), add a timeout as a s
 spcc run --timeout 1800   # kill any cell over 30 minutes
 ```
 
-For Docker cells, `--timeout` actually kills the container via `docker kill --filter label=spcc-cell=<RUN_TS>-<platform>-<sv>` so it doesn't keep consuming CPU after `spcc` exits.
+For Docker cells, `--timeout` actually kills the container via `docker kill --filter label=spcc-cell=<RUN_TS>-<platform>-<sv>` so it doesn't keep consuming CPU after `spcc` exits. For apple/container cells (`--container-runtime container`), the watchdog calls `container kill spcc-cell-<RUN_TS>-<platform>-<sv>` directly — the launcher sets that name on every cell because container 0.12 has no `list --filter label=`.
 
 If you want to manually unstick a container `spcc` started:
 
 ```bash
-docker ps --filter "name=spi-compat-" -q | xargs docker kill
+# docker
+docker ps --filter "label=spcc-cell" -q | xargs -r docker kill
+
+# apple/container — no --filter on list, so this is a "kill all" hammer
+container list -q | xargs -r container kill
 ```
 
 ## A cell is slow but making progress

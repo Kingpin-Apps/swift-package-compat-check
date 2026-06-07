@@ -16,12 +16,21 @@ struct CleanCommand: AsyncParsableCommand {
     )
     var pathOption: String?
 
+    @Option(
+        name: .customLong("container-runtime"),
+        help: "Container runtime whose volumes should be cleaned: docker (default) or container (apple/container)."
+    )
+    var containerRuntimeRaw: String?
+
     func run() async throws {
         let path = pathOption ?? pathArgument
         let url = URL(fileURLWithPath: path).standardizedFileURL
         let basename = url.lastPathComponent.isEmpty ? "package" : url.lastPathComponent
         let root = CachePaths.defaultRoot()
-        let ops = CleanupOps()
+        let runtime = try RunCommand.resolveContainerRuntime(
+            cli: containerRuntimeRaw, config: nil
+        )
+        let ops = CleanupOps(runtime: runtime)
 
         print("Cleaning caches for package: \(basename)")
         for sub in ["logs", "derived-data", "cloned-packages"] {
@@ -32,7 +41,7 @@ struct CleanCommand: AsyncParsableCommand {
             }
         }
         for volume in await ops.listPackageVolumes(packageBasename: basename) {
-            print("  docker volume rm \(volume)")
+            print("  \(runtime.removeVolumeArgv(name: volume).joined(separator: " "))")
             await ops.removeVolume(volume)
         }
         print("Done.")

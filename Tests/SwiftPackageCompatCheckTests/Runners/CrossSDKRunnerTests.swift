@@ -138,4 +138,23 @@ struct CrossSDKRunnerTests {
             "SDK_FALLBACK_URL=https://internal.example/sdk.zip"
         ))
     }
+
+    @Test("runtime=.container: android dispatches `container run` with --name, no --pull")
+    func androidContainerRuntime() async {
+        let recorder = RecordingCommandRunner()
+        let runner = CrossSDKRunner(commandRunner: recorder)
+        let (context, _) = Self.makeContext(
+            options: RunOptions(containerRuntime: .container)
+        )
+        _ = await runner.run(
+            pair: BuildPair(platform: .android, swiftVersion: .v6_3),
+            context: context
+        )
+        let argv = recorder.calls[0].arguments
+        #expect(argv.first == "container")
+        #expect(!argv.contains { $0.hasPrefix("--pull=") })
+        #expect(argv.contains("--name"))
+        #expect(argv.contains("spcc-cell-20260606T120000-android-6.3"))
+        #expect(argv.contains("SDK_BUILD_ARG=aarch64-unknown-linux-android28"))
+    }
 }

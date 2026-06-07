@@ -118,7 +118,7 @@ struct DockerLabelTests {
             packageBasename: "p",
             swiftVersion: .v6_3,
             image: "img",
-            pullPolicy: "missing",
+            pullPolicy: .missing,
             cellLabel: "RUN-linux-6.3"
         )
         #expect(argv.contains("--label"))
@@ -132,7 +132,7 @@ struct DockerLabelTests {
             packageBasename: "p",
             swiftVersion: .v6_3,
             image: "img",
-            pullPolicy: "missing",
+            pullPolicy: .missing,
             cellLabel: "RUN-android-6.3"
         )
         #expect(argv.contains("--label"))
@@ -146,7 +146,7 @@ struct DockerLabelTests {
             packageBasename: "p",
             swiftVersion: .v6_3,
             image: "img",
-            pullPolicy: "missing",
+            pullPolicy: .missing,
             cellLabel: nil
         )
         #expect(!argv.contains("--label"))

@@ -20,7 +20,7 @@ struct LinuxArgvBuildersTests {
             packageBasename: "swift-nacl",
             swiftVersion: .v6_3,
             image: "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest",
-            pullPolicy: "missing"
+            pullPolicy: .missing
         )
 
         // Top-level docker flags
@@ -53,7 +53,7 @@ struct LinuxArgvBuildersTests {
             packageBasename: "p",
             swiftVersion: .v6_2,
             image: "img",
-            pullPolicy: "always"
+            pullPolicy: .always
         )
         #expect(argv.contains("--pull=always"))
         #expect(!argv.contains("--pull=missing"))
@@ -66,12 +66,49 @@ struct LinuxArgvBuildersTests {
             packageBasename: "p",
             swiftVersion: .v6_3,
             image: "img",
-            pullPolicy: "missing",
+            pullPolicy: .missing,
             runTests: true
         )
         let script = try! #require(argv.last)
         #expect(script.contains("swift test --triple x86_64-unknown-linux-gnu"))
         #expect(!script.contains("swift build --triple"))
+    }
+
+    @Test("runtime=.container swaps docker→container, drops --pull, adds --name")
+    func containerRuntimeArgv() {
+        let argv = LinuxArgvBuilders.docker(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "swift-nacl",
+            swiftVersion: .v6_3,
+            image: "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest",
+            pullPolicy: .missing,
+            cellLabel: "20260607T120000-linux-6.3",
+            runtime: .container
+        )
+        #expect(argv.first == "container")
+        #expect(!argv.contains { $0.hasPrefix("--pull=") })
+        #expect(argv.contains("--name"))
+        #expect(argv.contains("spcc-cell-20260607T120000-linux-6.3"))
+        // The SPI-verbatim middle is unchanged regardless of runtime.
+        #expect(argv.contains("-v"))
+        #expect(argv.contains("spi-compat-build-swift-nacl-6.3:/build"))
+        #expect(argv.contains("JAVA_HOME=/root/.sdkman/candidates/java/current"))
+        #expect(argv.contains("registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest"))
+    }
+
+    @Test("runtime=.container with useRosetta=true appends --rosetta")
+    func containerRosettaOptIn() {
+        let argv = LinuxArgvBuilders.docker(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "p",
+            swiftVersion: .v6_3,
+            image: "img",
+            pullPolicy: .missing,
+            cellLabel: "x",
+            runtime: .container,
+            useRosetta: true
+        )
+        #expect(argv.contains("--rosetta"))
     }
 }
 

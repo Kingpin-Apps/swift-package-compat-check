@@ -46,6 +46,7 @@ public struct SPCCConfig: Sendable {
     public var test: Bool?
     public var noLive: Bool?
     public var verbose: Bool?
+    public var containerRuntime: ContainerRuntime?
     public var xcode: [SwiftVersion: String]
     public var toolchain: [SwiftVersion: String]
     public var linuxImage: [SwiftVersion: String]
@@ -67,6 +68,7 @@ public struct SPCCConfig: Sendable {
         test: Bool? = nil,
         noLive: Bool? = nil,
         verbose: Bool? = nil,
+        containerRuntime: ContainerRuntime? = nil,
         xcode: [SwiftVersion: String] = [:],
         toolchain: [SwiftVersion: String] = [:],
         linuxImage: [SwiftVersion: String] = [:],
@@ -83,6 +85,7 @@ public struct SPCCConfig: Sendable {
         self.test = test
         self.noLive = noLive
         self.verbose = verbose
+        self.containerRuntime = containerRuntime
         self.xcode = xcode
         self.toolchain = toolchain
         self.linuxImage = linuxImage
@@ -166,6 +169,8 @@ public struct SPCCConfig: Sendable {
         self.test = reader.bool(forKey: ConfigKey("test"))
         self.noLive = reader.bool(forKey: ConfigKey("no_live"))
         self.verbose = reader.bool(forKey: ConfigKey("verbose"))
+        self.containerRuntime = reader.string(forKey: ConfigKey("container_runtime"))
+            .flatMap(ContainerRuntime.init(rawValue:))
 
         func readPerVersion(_ section: String) -> [SwiftVersion: String] {
             var result: [SwiftVersion: String] = [:]

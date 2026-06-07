@@ -99,6 +99,27 @@ struct LinuxRunnerTests {
         ))
     }
 
+    @Test("runtime=.container dispatches `container run` with --name, no --pull")
+    func containerRuntimeDispatch() async {
+        let recorder = RecordingCommandRunner()
+        let runner = LinuxRunner(commandRunner: recorder)
+        let (context, _) = Self.makeContext(
+            packageBasename: "swift-nacl",
+            options: RunOptions(containerRuntime: .container)
+        )
+
+        _ = await runner.run(
+            pair: BuildPair(platform: .linux, swiftVersion: .v6_3),
+            context: context
+        )
+        let argv = recorder.calls[0].arguments
+        #expect(argv.first == "container")
+        #expect(!argv.contains { $0.hasPrefix("--pull=") })
+        #expect(argv.contains("--name"))
+        #expect(argv.contains("spcc-cell-20260606T120000-linux-6.3"))
+        #expect(argv.contains("registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest"))
+    }
+
     @Test("Non-zero docker exit produces .fail and the log captures the error")
     func failureCapturesLog() async throws {
         let recorder = RecordingCommandRunner()

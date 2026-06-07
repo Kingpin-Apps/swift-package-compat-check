@@ -107,6 +107,12 @@ struct RunCommand: AsyncParsableCommand {
     var pullAlways: Bool = false
 
     @Option(
+        name: .customLong("container-runtime"),
+        help: "Container runtime backing Linux/Android/Wasm cells: docker (default) or container (apple/container)."
+    )
+    var containerRuntimeRaw: String?
+
+    @Option(
         name: .customLong("max-parallel"),
         help: "Max cells to run concurrently within each Swift version (default: activeProcessorCount / 2)."
     )
@@ -190,7 +196,10 @@ struct RunCommand: AsyncParsableCommand {
             pullAlways: pullAlways || (config?.pullAlways ?? false),
             verbose: verbose || (config?.verbose ?? false),
             timeoutSeconds: timeoutSeconds ?? config?.timeoutSeconds,
-            runTests: runTests || (config?.test ?? false)
+            runTests: runTests || (config?.test ?? false),
+            containerRuntime: try Self.resolveContainerRuntime(
+                cli: containerRuntimeRaw, config: config?.containerRuntime
+            )
         )
 
         let effectiveNoLive = noLive || (config?.noLive ?? false)
@@ -226,7 +235,7 @@ struct RunCommand: AsyncParsableCommand {
             cache: cache,
             options: runOptions
         )
-        let dispatcher = MatrixDispatcher()
+        let dispatcher = MatrixDispatcher(containerRuntime: runOptions.containerRuntime)
 
         let outcomes: [BuildPair: CellOutcome]
         if useLive {
@@ -422,6 +431,20 @@ struct RunCommand: AsyncParsableCommand {
                 _ = enqueueNext()
             }
         }
+    }
+
+    static func resolveContainerRuntime(
+        cli: String?, config: ContainerRuntime?
+    ) throws -> ContainerRuntime {
+        if let cli, !cli.isEmpty {
+            guard let runtime = ContainerRuntime(rawValue: cli) else {
+                throw ValidationError(
+                    "Unknown --container-runtime: \(cli). Allowed: \(ContainerRuntime.allCases.map(\.rawValue).joined(separator: ", "))."
+                )
+            }
+            return runtime
+        }
+        return config ?? .docker
     }
 
     private static func runTimestamp() -> String {

@@ -127,6 +127,24 @@ struct SPCCConfigFieldTests {
         #expect(config.pullAlways == nil)
         #expect(config.xcode.isEmpty)
         #expect(config.toolchain.isEmpty)
+        #expect(config.containerRuntime == nil)
+    }
+
+    @Test("Decodes container_runtime as the typed ContainerRuntime enum")
+    func containerRuntimeKey() async throws {
+        let docker = try await SPCCConfig.load(
+            from: Self.writeTOML(#"container_runtime = "docker""#)
+        )
+        #expect(docker.containerRuntime == .docker)
+        let container = try await SPCCConfig.load(
+            from: Self.writeTOML(#"container_runtime = "container""#)
+        )
+        #expect(container.containerRuntime == .container)
+        // Unknown values silently become nil (CLI is the validation seam).
+        let bogus = try await SPCCConfig.load(
+            from: Self.writeTOML(#"container_runtime = "podman""#)
+        )
+        #expect(bogus.containerRuntime == nil)
     }
 
     static func writeTOML(_ contents: String) throws -> URL {

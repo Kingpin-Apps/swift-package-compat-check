@@ -43,6 +43,39 @@ hello-config:
 hello-full:
     swift run spcc run Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
 
+# Smoke-test the apple/container runtime path against HelloWorld (requires `container` 0.12+ + `container system start`)
+hello-container:
+    swift run spcc run --container-runtime container -p macos-spm,linux -s 6.3 Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
+
+# Run HelloWorld under both runtimes and confirm cell pass/fail matches. Fails non-zero on any divergence.
+hello-parity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PKG=Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
+    PLATFORMS="macos-spm,linux,android"
+    SV="6.3"
+    DOCKER_OUT=$(mktemp /tmp/spcc-parity-docker.XXXXXX.txt)
+    CONTAINER_OUT=$(mktemp /tmp/spcc-parity-container.XXXXXX.txt)
+    trap 'rm -f "$DOCKER_OUT" "$CONTAINER_OUT"' EXIT
+    echo "▶ docker runtime"
+    swift run spcc run --container-runtime docker -p "$PLATFORMS" -s "$SV" --no-live "$PKG" | tee "$DOCKER_OUT"
+    echo ""
+    echo "▶ container runtime"
+    swift run spcc run --container-runtime container -p "$PLATFORMS" -s "$SV" --no-live "$PKG" | tee "$CONTAINER_OUT"
+    echo ""
+    # Compare just the rows of the final matrix box (the canonical pass/fail
+    # report). Skip the per-cell streaming lines whose timings naturally differ
+    # between runtimes — what matters is the verdict, not the wall-clock.
+    DOCKER_MATRIX=$(grep '│' "$DOCKER_OUT" || true)
+    CONTAINER_MATRIX=$(grep '│' "$CONTAINER_OUT" || true)
+    if [ "$DOCKER_MATRIX" = "$CONTAINER_MATRIX" ]; then
+        echo "✓ parity green — matrices match"
+    else
+        echo "✗ parity FAILED — runtimes diverge"
+        diff <(printf '%s\n' "$DOCKER_MATRIX") <(printf '%s\n' "$CONTAINER_MATRIX") || true
+        exit 1
+    fi
+
 # Build for the current host architecture only (fast, for development)
 release:
     swift build -c release

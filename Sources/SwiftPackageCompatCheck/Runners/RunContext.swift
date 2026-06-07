@@ -11,8 +11,8 @@ public struct RunOptions: Sendable {
     public var pullAlways: Bool
     public var verbose: Bool
     /// Per-cell wall-clock timeout in seconds. `nil` disables timeouts entirely.
-    /// When set, docker-backed runners attach a label and kill the container if
-    /// the cell exceeds the budget.
+    /// When set, container-backed runners attach a label / name and kill the
+    /// container if the cell exceeds the budget.
     public var timeoutSeconds: Double?
     /// When `true`, every runner replaces `swift build` with `swift test` (or
     /// `xcodebuild build` with `xcodebuild test`). xcodebuild destinations for
@@ -21,6 +21,14 @@ public struct RunOptions: Sendable {
     /// (android, wasm) pass `swift test --swift-sdk` through, which compiles
     /// the tests but typically can't execute them without a target device.
     public var runTests: Bool
+    /// Host runtime backing Linux / Android / Wasm cells. Defaults to `.docker`
+    /// (status-quo behaviour). `.container` routes through apple/container.
+    public var containerRuntime: ContainerRuntime
+    /// Opt-in Rosetta translation for the container runtime. `nil` and `false`
+    /// behave identically (no `--rosetta`); `true` appends `--rosetta`. Only
+    /// meaningful when `containerRuntime == .container`. Phase 1 always
+    /// resolves to nil — Phase 2 measures whether enabling it is a net win.
+    public var useRosetta: Bool?
 
     public init(
         xcodeForVersion: [SwiftVersion: URL] = [:],
@@ -32,7 +40,9 @@ public struct RunOptions: Sendable {
         pullAlways: Bool = false,
         verbose: Bool = false,
         timeoutSeconds: Double? = nil,
-        runTests: Bool = false
+        runTests: Bool = false,
+        containerRuntime: ContainerRuntime = .docker,
+        useRosetta: Bool? = nil
     ) {
         self.xcodeForVersion = xcodeForVersion
         self.toolchainForVersion = toolchainForVersion
@@ -44,6 +54,8 @@ public struct RunOptions: Sendable {
         self.verbose = verbose
         self.timeoutSeconds = timeoutSeconds
         self.runTests = runTests
+        self.containerRuntime = containerRuntime
+        self.useRosetta = useRosetta
     }
 
     /// `DEVELOPER_DIR=<xcode>/Contents/Developer` for the given Swift version,
@@ -55,7 +67,7 @@ public struct RunOptions: Sendable {
 
     /// `--pull=always` (when toggled) or `--pull=missing` (default) for docker
     /// invocations. Matches the bash script's `PULL_POLICY` default of `missing`.
-    public var pullPolicy: String { pullAlways ? "always" : "missing" }
+    public var pullPolicy: PullPolicy { pullAlways ? .always : .missing }
 }
 
 public extension Platform {

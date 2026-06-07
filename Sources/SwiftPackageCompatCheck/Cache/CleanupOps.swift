@@ -1,62 +1,61 @@
 import Command
 import Foundation
 
-/// Wrappers around `du -sh`, `docker volume ls/rm`, and `docker images/rmi` used by
-/// the cleanup subcommands. Mirrors the bash script's helpers — `list_spi_volumes`,
-/// `volume_size`, `list_spi_images`, etc. — so the user-facing output matches the
-/// existing tool's format.
+/// Wrappers around `du -sh` and the host container runtime's volume / image
+/// commands. Mirrors the bash script's helpers — `list_spi_volumes`,
+/// `volume_size`, `list_spi_images`, etc. — so the user-facing output matches
+/// the existing tool's format regardless of which runtime ran the build.
 public struct CleanupOps: Sendable {
     public static let imageRepository = "registry.gitlab.com/swiftpackageindex/spi-images"
 
     private let runner: any CommandRunning
+    public let runtime: ContainerRuntime
 
-    public init(runner: any CommandRunning = CommandRunner()) {
+    public init(
+        runner: any CommandRunning = CommandRunner(),
+        runtime: ContainerRuntime = .docker
+    ) {
         self.runner = runner
+        self.runtime = runtime
     }
 
     // MARK: - Listing
 
-    /// `docker volume ls --filter "name=spi-compat" --format "{{.Name}}"`.
+    /// Volumes whose name begins with `spi-compat`. Docker uses a server-side
+    /// `--filter name=`; container has no filter and we parse the JSON output
+    /// client-side via `ContainerRuntime.parseVolumeList`.
     public func listSPIVolumes() async -> [String] {
-        await captureLines(arguments: [
-            "docker", "volume", "ls",
-            "--filter", "name=spi-compat",
-            "--format", "{{.Name}}",
-        ])
+        let stdout = await captureRaw(arguments: runtime.listVolumesArgv(prefix: "spi-compat"))
+        return runtime.parseVolumeList(stdout, prefix: "spi-compat")
     }
 
-    /// Volumes belonging to one package: `docker volume ls --filter name=spi-compat-build-<pkg>-`.
+    /// Volumes belonging to one package — same filter scoped to the package
+    /// basename.
     public func listPackageVolumes(packageBasename: String) async -> [String] {
-        await captureLines(arguments: [
-            "docker", "volume", "ls",
-            "--filter", "name=spi-compat-build-\(packageBasename)-",
-            "--format", "{{.Name}}",
-        ])
+        let prefix = "spi-compat-build-\(packageBasename)-"
+        let stdout = await captureRaw(arguments: runtime.listVolumesArgv(prefix: prefix))
+        return runtime.parseVolumeList(stdout, prefix: prefix)
     }
 
-    /// SPI builder images currently cached locally, with their docker-reported size.
+    /// SPI builder images currently cached locally, with their runtime-reported size.
     public func listSPIImages() async -> [(reference: String, size: String)] {
-        let lines = await captureLines(arguments: [
-            "docker", "images", Self.imageRepository,
-            "--format", "{{.Repository}}:{{.Tag}}|{{.Size}}",
-        ])
-        return lines.compactMap { line in
-            let parts = line.split(separator: "|", maxSplits: 1)
-            guard parts.count == 2 else { return nil }
-            return (reference: String(parts[0]), size: String(parts[1]))
-        }
+        let stdout = await captureRaw(
+            arguments: runtime.listImagesArgv(repository: Self.imageRepository)
+        )
+        return runtime.parseImageList(stdout, repository: Self.imageRepository)
     }
 
     // MARK: - Removal
 
-    /// `docker volume rm <name>`. Silently swallows errors (matches bash `|| true`).
+    /// `<runtime> volume rm|delete <name>`. Silently swallows errors (matches
+    /// bash `|| true`).
     public func removeVolume(_ name: String) async {
-        _ = await captureLines(arguments: ["docker", "volume", "rm", name])
+        _ = await captureLines(arguments: runtime.removeVolumeArgv(name: name))
     }
 
-    /// `docker rmi <ref>`. Silently swallows errors.
+    /// `<runtime> rmi | image delete <ref>`. Silently swallows errors.
     public func removeImage(_ reference: String) async {
-        _ = await captureLines(arguments: ["docker", "rmi", reference])
+        _ = await captureLines(arguments: runtime.removeImageArgv(reference: reference))
     }
 
     // MARK: - Size reporting
@@ -68,17 +67,32 @@ public struct CleanupOps: Sendable {
         return lines.first?.split(separator: "\t").first.map(String.init) ?? "?"
     }
 
-    /// Size of a docker volume — mounts it via `alpine du -sh /data` (matches bash).
+    /// Size of a named volume — mounts it via `alpine du -sh /data` (matches
+    /// bash). Uses the active runtime's `run` shape with no pull policy + no
+    /// kill label since this is a one-shot read-only mount.
     public func volumeSize(_ name: String) async -> String {
-        let lines = await captureLines(arguments: [
-            "docker", "run", "--rm", "-v", "\(name):/data", "alpine", "du", "-sh", "/data",
-        ])
+        let head = runtime.runArgvHead(cellLabel: "", pullPolicy: .missing)
+        var argv = head
+        // Container head already includes a `--name spcc-cell-` (since
+        // cellLabel was ""); strip the empty pair so the runtime auto-names.
+        if let idx = argv.firstIndex(of: "--name"), idx + 1 < argv.count {
+            argv.removeSubrange(idx ... idx + 1)
+        }
+        argv.append(contentsOf: ["-v", "\(name):/data", "alpine", "du", "-sh", "/data"])
+        let lines = await captureLines(arguments: argv)
         return lines.first?.split(separator: "\t").first.map(String.init) ?? "?"
     }
 
     // MARK: - Internals
 
     private func captureLines(arguments: [String]) async -> [String] {
+        let stdout = await captureRaw(arguments: arguments)
+        return stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    private func captureRaw(arguments: [String]) async -> String {
         var stdout = Data()
         do {
             for try await event in runner.run(arguments: arguments) {
@@ -87,10 +101,8 @@ public struct CleanupOps: Sendable {
                 }
             }
         } catch {
-            return []
+            return ""
         }
-        return String(data: stdout, encoding: .utf8)?
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init) ?? []
+        return String(data: stdout, encoding: .utf8) ?? ""
     }
 }

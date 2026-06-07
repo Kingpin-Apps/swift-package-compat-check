@@ -98,6 +98,81 @@ struct CleanupOpsTests {
         let size = await ops.volumeSize("spi-compat-build-pkg-6.3")
         #expect(size == "1.2G")
     }
+
+    // MARK: - container runtime variants
+
+    @Test("runtime=.container: listSPIVolumes parses --format json + prefix-filters client-side")
+    func containerListVolumes() async {
+        let stub = StubCommandRunner()
+        stub.responses = [(["container", "volume", "list"], """
+            [
+              { "name": "spi-compat-build-pkg-6.3", "size": 1 },
+              { "name": "spi-compat-build-pkg-android-6.3", "size": 1 },
+              { "name": "unrelated", "size": 1 }
+            ]
+            """)]
+        let ops = CleanupOps(runner: stub, runtime: .container)
+        let volumes = await ops.listSPIVolumes()
+        #expect(volumes == [
+            "spi-compat-build-pkg-6.3",
+            "spi-compat-build-pkg-android-6.3",
+        ])
+        #expect(stub.calls[0] == [
+            "container", "volume", "list", "--format", "json",
+        ])
+    }
+
+    @Test("runtime=.container: removeVolume uses 'volume delete' not 'volume rm'")
+    func containerRemoveVolume() async {
+        let stub = StubCommandRunner()
+        let ops = CleanupOps(runner: stub, runtime: .container)
+        await ops.removeVolume("spi-compat-build-pkg-6.3")
+        #expect(stub.calls[0] == [
+            "container", "volume", "delete", "spi-compat-build-pkg-6.3",
+        ])
+    }
+
+    @Test("runtime=.container: removeImage uses 'image delete' not 'rmi'")
+    func containerRemoveImage() async {
+        let stub = StubCommandRunner()
+        let ops = CleanupOps(runner: stub, runtime: .container)
+        await ops.removeImage("registry.gitlab.com/spi/img:tag")
+        #expect(stub.calls[0] == [
+            "container", "image", "delete", "registry.gitlab.com/spi/img:tag",
+        ])
+    }
+
+    @Test("runtime=.container: listSPIImages parses JSON + formats byte size")
+    func containerListImages() async {
+        let stub = StubCommandRunner()
+        stub.responses = [(["container", "image", "list"], """
+            [
+              { "reference": "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest", "size": 1288490189 },
+              { "reference": "ghcr.io/other/img:tag", "size": 1 }
+            ]
+            """)]
+        let ops = CleanupOps(runner: stub, runtime: .container)
+        let images = await ops.listSPIImages()
+        #expect(images.count == 1)
+        #expect(images[0].reference == "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest")
+        #expect(images[0].size.hasSuffix("GB"))
+    }
+
+    @Test("runtime=.container: volumeSize uses 'container run' head with no --pull, no --name")
+    func containerVolumeSize() async {
+        let stub = StubCommandRunner()
+        stub.responses = [(["container", "run"], "1.2G\t/data\n")]
+        let ops = CleanupOps(runner: stub, runtime: .container)
+        let size = await ops.volumeSize("spi-compat-build-pkg-6.3")
+        #expect(size == "1.2G")
+        let argv = stub.calls[0]
+        #expect(argv.first == "container")
+        #expect(!argv.contains { $0.hasPrefix("--pull=") })
+        // No --name on the read-only size probe (the runtime auto-names).
+        #expect(!argv.contains("--name"))
+        #expect(argv.contains("spi-compat-build-pkg-6.3:/data"))
+        #expect(argv.contains("alpine"))
+    }
 }
 
 @Suite("CachePaths.trimOldLogs")

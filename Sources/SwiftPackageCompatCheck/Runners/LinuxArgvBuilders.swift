@@ -16,7 +16,7 @@ public enum LinuxArgvBuilders {
         "spi-compat-build-\(packageBasename)-\(swiftVersion.rawValue)"
     }
 
-    /// The full `docker run ...` argv that the Linux runner dispatches. SPI's
+    /// The full `<runtime> run ...` argv that the Linux runner dispatches. SPI's
     /// actual Build Command panel is the model:
     ///
     ///     docker run --pull=always --rm -v "checkouts-*":/host -w "$PWD" \
@@ -29,28 +29,35 @@ public enum LinuxArgvBuilders {
     /// to `/host` and mount a per-`(package, swift-version)` named volume at
     /// `/build` for `--scratch-path` so the host's macOS-flavoured `.build/` never
     /// leaks in (would error with `invalid access to /host/.build/checkouts/...`).
+    ///
+    /// `runtime` swaps the head of the argv (and disposes of inline `--pull=`
+    /// when the runtime doesn't support it). Defaults to `.docker` so existing
+    /// call sites stay byte-identical.
     public static func docker(
         packagePath: URL,
         packageBasename: String,
         swiftVersion: SwiftVersion,
         image: String,
-        pullPolicy: String,
+        pullPolicy: PullPolicy,
         cellLabel: String? = nil,
-        runTests: Bool = false
+        runTests: Bool = false,
+        runtime: ContainerRuntime = .docker,
+        useRosetta: Bool = false
     ) -> [String] {
         let volume = volumeName(packageBasename: packageBasename, swiftVersion: swiftVersion)
-        var argv: [String] = [
-            "docker", "run",
-            "--pull=\(pullPolicy)",
-            "--rm",
-            "--platform", "linux/amd64",
+        var argv: [String] = runtime.runArgvHead(
+            cellLabel: cellLabel ?? "",
+            pullPolicy: pullPolicy,
+            useRosetta: useRosetta
+        )
+        argv.append(contentsOf: [
             "-v", "\(packagePath.path):\(packageMountPath)",
             "-w", packageMountPath,
             "-v", "\(volume):\(scratchMountPath)",
             "-e", "JAVA_HOME=/root/.sdkman/candidates/java/current",
             "-e", "SPI_BUILD=1",
             "-e", "SPI_PROCESSING=1",
-        ]
+        ])
         if let label = cellLabel {
             argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
         }

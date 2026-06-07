@@ -9,11 +9,11 @@ struct ListCachesCommand: AsyncParsableCommand {
 
     func run() async throws {
         let root = CachePaths.defaultRoot()
-        let ops = CleanupOps()
+        let dockerOps = CleanupOps(runtime: .docker)
 
         print("Cache root: \(root.path)")
         if FileManager.default.fileExists(atPath: root.path) {
-            print("  Total:        \(await ops.pathSize(root))")
+            print("  Total:        \(await dockerOps.pathSize(root))")
             for sub in ["logs", "derived-data", "cloned-packages"] {
                 let subURL = root.appendingPathComponent(sub)
                 guard FileManager.default.fileExists(atPath: subURL.path) else { continue }
@@ -26,32 +26,39 @@ struct ListCachesCommand: AsyncParsableCommand {
                 for pkg in pkgs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                     let isDir = (try? pkg.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
                     guard isDir else { continue }
-                    let size = await ops.pathSize(pkg)
+                    let size = await dockerOps.pathSize(pkg)
                     print("    \(size.paddingLeft(to: 9))  \(pkg.lastPathComponent)")
                 }
             }
         } else {
             print("  (does not exist)")
         }
-        print("")
-        print("Docker volumes (spi-compat-*):")
-        let volumes = await ops.listSPIVolumes()
-        if volumes.isEmpty {
-            print("  (none)")
-        } else {
-            for volume in volumes {
-                let size = await ops.volumeSize(volume)
-                print("  \(size.paddingLeft(to: 9))  \(volume)")
+
+        // Report volumes + images per installed runtime. Runtimes whose CLI
+        // isn't installed return empty lists, so unused branches stay silent.
+        for runtime in ContainerRuntime.allCases {
+            let ops = CleanupOps(runtime: runtime)
+            let volumes = await ops.listSPIVolumes()
+            let images = await ops.listSPIImages()
+            guard !volumes.isEmpty || !images.isEmpty else { continue }
+
+            print("")
+            print("[\(runtime.rawValue)] volumes (spi-compat-*):")
+            if volumes.isEmpty {
+                print("  (none)")
+            } else {
+                for volume in volumes {
+                    let size = await ops.volumeSize(volume)
+                    print("  \(size.paddingLeft(to: 9))  \(volume)")
+                }
             }
-        }
-        print("")
-        print("Docker images (spi-images):")
-        let images = await ops.listSPIImages()
-        if images.isEmpty {
-            print("  (none)")
-        } else {
-            for image in images {
-                print("  \(image.size.paddingLeft(to: 9))  \(image.reference)")
+            print("[\(runtime.rawValue)] images (spi-images):")
+            if images.isEmpty {
+                print("  (none)")
+            } else {
+                for image in images {
+                    print("  \(image.size.paddingLeft(to: 9))  \(image.reference)")
+                }
             }
         }
     }
