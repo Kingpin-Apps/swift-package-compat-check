@@ -100,20 +100,84 @@ public enum CrossSDKArgvBuilders {
         ]
     }
 
-    /// The full bash resolver lifted verbatim from `spi-compat-check.sh`'s
-    /// `run_cross_sdk` function. Embeds the resolver inside the container so it
-    /// runs against the image's actual installed SDK list rather than guessing.
+    /// The full bash resolver lifted from `spi-compat-check.sh`'s `run_cross_sdk`
+    /// function with two spcc-specific improvements over the bash original:
+    ///
+    /// 1. **Retry on transient qemu IPC errors.** When `swift build` dies with
+    ///    "failed parsing the Swift compiler output: unexpected JSON message"
+    ///    (a qemu emulation artifact under Apple Silicon, not a real build
+    ///    failure), the resolver retries up to `SPCC_RETRY_MAX` times before
+    ///    falling back to a different SDK strategy. Without this, transient
+    ///    failures cascade into the multi-triple bundle build that triggered
+    ///    the original swift-cardano-cips android-6.1 hang.
+    /// 2. **Extract a specific triple from a multi-arch bundle.** When the
+    ///    fallback resolver picks a bundle (e.g. `swift-6.1-RELEASE-android-24-0.1`),
+    ///    SwiftPM otherwise builds for EVERY targetTriple inside it (armv7 +
+    ///    aarch64 + x86_64 × several API levels = 3-9× the work, all under
+    ///    qemu). We parse the bundle's `swift-sdk.json` with python3 and pick
+    ///    the triple closest to `SDK_BUILD_ARG`'s architecture + API level.
     static let resolverScript: String = #"""
         set -euo pipefail
         swift --version
 
+        : "${SPCC_RETRY_MAX:=2}"
+
+        # Run `swift build` and tee its output to a temp log so we can grep the
+        # log for transient-error fingerprints. Returns 0 on success; 1 on a
+        # permanent error; 2 on a transient error worth retrying.
+        try_build() {
+          local sdk="$1" tmplog="$2"
+          rm -f "$tmplog"
+          set +e
+          (
+            set -o pipefail
+            swift build --swift-sdk "$sdk" --scratch-path /build 2>&1 | tee "$tmplog"
+          )
+          local rc=$?
+          set -e
+          if [[ $rc -eq 0 ]]; then
+            return 0
+          fi
+          if grep -qE "failed parsing the Swift compiler output|unexpected JSON message" "$tmplog"; then
+            echo "Detected transient IPC error (qemu corruption)." >&2
+            return 2
+          fi
+          return 1
+        }
+
+        # Run try_build with up to SPCC_RETRY_MAX retries on transient errors.
+        build_with_retry() {
+          local sdk="$1"
+          local tmplog
+          tmplog="$(mktemp /tmp/spcc-build.XXXXXX.log)"
+          local attempt=1 max=$((SPCC_RETRY_MAX + 1))
+          while [[ $attempt -le $max ]]; do
+            if [[ $attempt -gt 1 ]]; then
+              echo "Retry $((attempt - 1))/$SPCC_RETRY_MAX for SDK '$sdk'..."
+            fi
+            try_build "$sdk" "$tmplog"
+            local rc=$?
+            if [[ $rc -eq 0 ]]; then
+              rm -f "$tmplog"
+              return 0
+            fi
+            if [[ $rc -eq 1 ]]; then
+              rm -f "$tmplog"
+              return 1
+            fi
+            attempt=$((attempt + 1))
+          done
+          rm -f "$tmplog"
+          return 1
+        }
+
         # Fast path: caller passed the exact `--swift-sdk` argument SPI uses.
         if [[ -n "${SDK_BUILD_ARG:-}" ]]; then
           echo "Trying SPI-style SDK arg: $SDK_BUILD_ARG"
-          if swift build --swift-sdk "$SDK_BUILD_ARG" --scratch-path /build; then
+          if build_with_retry "$SDK_BUILD_ARG"; then
             exit 0
           fi
-          echo "SPI-style SDK arg failed; falling back to dynamic resolution."
+          echo "SPI-style SDK arg failed permanently; falling back to dynamic resolution."
         fi
 
         compiler_v="$(swift --version | head -1 | awk "/Swift version/ {print \$3}")"
@@ -148,6 +212,52 @@ public enum CrossSDKArgvBuilders {
           fi
         }
 
+        # When `pick_matching_sdk` returns a multi-triple bundle (e.g.
+        # `swift-6.1-RELEASE-android-24-0.1`), passing the bundle name to
+        # `swift build --swift-sdk` triggers a build for EVERY targetTriple in
+        # the bundle. On Apple Silicon under qemu this means 3-9× the work and
+        # 3-9× the chance of IPC corruption. Extract a single matching triple
+        # from the bundle's swift-sdk.json instead.
+        extract_bundle_triple() {
+          local sdk_id="$1" hint="${SDK_BUILD_ARG:-}"
+          local bundle_path="/root/.swiftpm/swift-sdks/${sdk_id}.artifactbundle"
+          if [[ ! -d "$bundle_path" ]]; then
+            printf '%s' "$sdk_id"
+            return
+          fi
+          python3 - <<PYEOF
+        import json, glob, os, re, sys
+        bundle = "$bundle_path"
+        hint = "$hint"
+        manifests = glob.glob(os.path.join(bundle, "*", "swift-sdk.json"))
+        if not manifests:
+            print("$sdk_id")
+            sys.exit(0)
+        with open(manifests[0]) as f:
+            data = json.load(f)
+        triples = list(data.get("targetTriples", {}).keys())
+        if not triples:
+            print("$sdk_id")
+            sys.exit(0)
+        if hint in triples:
+            print(hint)
+            sys.exit(0)
+        # Same architecture as the hint; closest API level <= hint's, else highest available.
+        hint_arch = hint.split("-", 1)[0] if hint else ""
+        def api_level(triple):
+            m = re.search(r"(\d+)$", triple)
+            return int(m.group(1)) if m else 0
+        hint_api = api_level(hint)
+        same_arch = [t for t in triples if t.startswith(hint_arch + "-")]
+        if same_arch:
+            le_hint = [t for t in same_arch if api_level(t) <= hint_api]
+            pick = max(le_hint, key=api_level) if le_hint else max(same_arch, key=api_level)
+            print(pick)
+            sys.exit(0)
+        print(triples[0])
+        PYEOF
+        }
+
         sdk_id="$(pick_matching_sdk || true)"
 
         if [[ -z "$sdk_id" ]]; then
@@ -176,7 +286,15 @@ public enum CrossSDKArgvBuilders {
           swift sdk list
           exit 1
         fi
+
+        # Resolve a bundle name down to a specific triple if applicable.
+        resolved_sdk="$(extract_bundle_triple "$sdk_id")"
+        if [[ "$resolved_sdk" != "$sdk_id" ]]; then
+          echo "Resolved bundle '$sdk_id' to single triple '$resolved_sdk' (avoiding multi-arch build)."
+          sdk_id="$resolved_sdk"
+        fi
+
         echo "Using SDK: $sdk_id"
-        swift build --swift-sdk "$sdk_id" --scratch-path /build
+        build_with_retry "$sdk_id"
         """#
 }

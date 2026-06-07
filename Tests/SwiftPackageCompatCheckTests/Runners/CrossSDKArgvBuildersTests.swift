@@ -56,14 +56,40 @@ struct CrossSDKArgvBuildersTests {
     @Test("Resolver script tries SPI-style fast path before falling back")
     func resolverScriptShape() {
         let script = CrossSDKArgvBuilders.resolverScript
-        // Fast path: the verbatim SPI build command.
-        #expect(script.contains("swift build --swift-sdk \"$SDK_BUILD_ARG\""))
+        // Fast path runs through build_with_retry (retries on transient errors).
+        #expect(script.contains("build_with_retry \"$SDK_BUILD_ARG\""))
         // Dynamic resolver fallback hooks.
         #expect(script.contains("swift sdk list"))
         #expect(script.contains("pick_matching_sdk"))
         // Fallback download path is wired up.
         #expect(script.contains("SDK_FALLBACK_URL"))
         #expect(script.contains("swift sdk install"))
+    }
+
+    @Test("Resolver retries on qemu IPC corruption (the swift-cardano-cips hang fingerprint)")
+    func resolverRetriesOnTransientErrors() {
+        let script = CrossSDKArgvBuilders.resolverScript
+        // Default retry budget; configurable via SPCC_RETRY_MAX.
+        #expect(script.contains("SPCC_RETRY_MAX"))
+        // try_build greps for the exact transient-error fingerprints.
+        #expect(script.contains("failed parsing the Swift compiler output"))
+        #expect(script.contains("unexpected JSON message"))
+        // Distinct exit codes: 0 success, 1 permanent, 2 transient.
+        #expect(script.contains("Detected transient IPC error"))
+    }
+
+    @Test("Resolver extracts a specific triple from a multi-arch bundle")
+    func resolverExtractsBundleTriple() {
+        let script = CrossSDKArgvBuilders.resolverScript
+        #expect(script.contains("extract_bundle_triple"))
+        // Looks up the bundle's swift-sdk.json (where targetTriples live).
+        #expect(script.contains("swift-sdks/${sdk_id}.artifactbundle"))
+        #expect(script.contains("swift-sdk.json"))
+        #expect(script.contains("targetTriples"))
+        // Picks the highest API level <= the hint's (closest to SPI's intent).
+        #expect(script.contains("hint_api"))
+        // Logs the resolution so the user sees the bundle → triple flip.
+        #expect(script.contains("avoiding multi-arch build"))
     }
 }
 
