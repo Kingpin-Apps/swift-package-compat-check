@@ -24,7 +24,11 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 
 ## Installation
 
-Build from source with Swift Package Manager:
+```bash
+brew install kingpin-apps/tap/spcc
+```
+
+Or build from source with Swift Package Manager:
 
 ```bash
 git clone https://github.com/Kingpin-Apps/swift-package-compat-check.git
@@ -34,8 +38,6 @@ cp .build/release/spcc ~/.local/bin/spcc
 ```
 
 Make sure `~/.local/bin` is on your `$PATH` (or copy somewhere else that is).
-
-> A Homebrew tap is planned. This section will be updated with the `brew install …` invocation once it's live.
 
 ---
 

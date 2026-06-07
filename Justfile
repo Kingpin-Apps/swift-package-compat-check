@@ -130,6 +130,30 @@ notarize: sign
     rm -f "$ZIPFILE"
     echo "✓ Notarization complete"
 
+# Tarball notarized binary, create GitHub release, upload asset. Reads version from cz.json.
+publish: notarize
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION=$(jq -r '.commitizen.version' cz.json)
+    BIN_PATH="{{ justfile_directory() }}/.build/universal/release"
+    TARBALL="$BIN_PATH/spcc-${VERSION}-macos-universal.tar.gz"
+    NOTES=$(mktemp /tmp/spcc-release-notes-XXXXXX.md)
+    trap 'rm -f "$NOTES"' EXIT
+    echo "Tarballing → $TARBALL"
+    (cd "$BIN_PATH" && tar -czf "spcc-${VERSION}-macos-universal.tar.gz" spcc)
+    shasum -a 256 "$TARBALL"
+    awk -v v="^## ${VERSION//./\\.}" '$0 ~ v {flag=1; print; next} /^## /{flag=0} flag' CHANGELOG.md > "$NOTES"
+    if [ ! -s "$NOTES" ]; then
+        echo "✗ No CHANGELOG entry found for $VERSION" >&2
+        exit 1
+    fi
+    echo "Creating GitHub release $VERSION..."
+    gh release create "$VERSION" \
+        --title "$VERSION" \
+        --notes-file "$NOTES" \
+        "$TARBALL"
+    echo "✓ Released $VERSION"
+
 # Build universal binary, codesign, and install to $INSTALL_DIR
 install: sign
     #!/usr/bin/env bash
