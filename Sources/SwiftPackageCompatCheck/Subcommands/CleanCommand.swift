@@ -7,10 +7,17 @@ struct CleanCommand: AsyncParsableCommand {
         abstract: "Remove cache volumes and logs for one package."
     )
 
-    @Argument(help: "Path to the Swift package. Defaults to the current directory.")
-    var path: String = "."
+    @Argument(help: "Path to the Swift package. Defaults to the current directory. Equivalent to --path.")
+    var pathArgument: String = "."
+
+    @Option(
+        name: [.customShort("P"), .customLong("path")],
+        help: "Path to the Swift package (alternative to the positional argument). Wins if both are given."
+    )
+    var pathOption: String?
 
     func run() async throws {
+        let path = pathOption ?? pathArgument
         let url = URL(fileURLWithPath: path).standardizedFileURL
         let basename = url.lastPathComponent.isEmpty ? "package" : url.lastPathComponent
         let root = CachePaths.defaultRoot()
