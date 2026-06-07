@@ -57,6 +57,10 @@ spcc run --path ~/Projects/swift-nacl
 # Run `swift test` per cell instead of `swift build`
 spcc run --test -p macos-spm,linux -s 6.3
 
+# Load default flags from a config file (--config wins over $SPCC_CONFIG)
+spcc run --config ./.spi-compat.toml
+SPCC_CONFIG=~/.config/spcc.toml spcc run
+
 # Smoke-test spcc itself against the bundled HelloWorld fixture
 just hello
 ```

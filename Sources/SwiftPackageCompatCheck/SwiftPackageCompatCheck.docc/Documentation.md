@@ -20,6 +20,7 @@ The SPI badge is the source of truth for whether your package builds across the 
 
 - <doc:GettingStarted>
 - <doc:RunningTheMatrix>
+- <doc:Configuration>
 
 ### Caches & cleanup
 

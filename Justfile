@@ -33,6 +33,12 @@ hello:
 hello-test:
     swift run spcc run --test -p macos-spm,linux -s 6.3 Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
 
+# Smoke-test --config via the fixture's checked-in .spi-compat.toml
+hello-config:
+    swift run spcc run \
+        --config Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld/.spi-compat.toml \
+        Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
+
 # Full 34-cell matrix against HelloWorld (slow on first run; pulls all SPI images)
 hello-full:
     swift run spcc run Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld

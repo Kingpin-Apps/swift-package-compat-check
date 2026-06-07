@@ -17,6 +17,12 @@ struct RunCommand: AsyncParsableCommand {
     var pathOption: String?
 
     @Option(
+        name: [.customShort("c"), .customLong("config")],
+        help: "Path to a TOML/JSON config file with default flag values. Falls back to $SPCC_CONFIG if unset; otherwise built-in defaults are used."
+    )
+    var configPath: String?
+
+    @Option(
         name: [.short, .customLong("swift")],
         help: "Comma-separated Swift versions (default: 6.0,6.1,6.2,6.3)."
     )
@@ -131,13 +137,22 @@ struct RunCommand: AsyncParsableCommand {
     var quiet: Bool = false
 
     func run() async throws {
+        let config: SPCCConfig?
+        do {
+            config = try await SPCCConfig.load(explicitPath: configPath)
+        } catch {
+            throw ValidationError("Could not load config: \(error)")
+        }
+
         let path = pathOption ?? pathArgument
-        let swiftVersions = try parseSwiftVersions(swiftRaw)
-        let platforms = try parsePlatforms(platformsRaw)
+        let swiftVersions = try parseSwiftVersions(swiftRaw, config: config)
+        let platforms = try parsePlatforms(platformsRaw, config: config)
 
         let detectedScheme: String
         if let scheme {
             detectedScheme = scheme
+        } else if let configScheme = config?.scheme, !configScheme.isEmpty {
+            detectedScheme = configScheme
         } else {
             do {
                 detectedScheme = try await SchemeDetector().detectScheme(packagePath: path)
@@ -156,17 +171,29 @@ struct RunCommand: AsyncParsableCommand {
             runTimestamp: Self.runTimestamp()
         )
         let runOptions = RunOptions(
-            xcodeForVersion: parseXcodeOverrides(),
-            toolchainForVersion: parseToolchainOverrides(),
-            linuxImageForVersion: parseLinuxImageOverrides(),
-            androidImageForVersion: parseAndroidImageOverrides(),
-            wasmImageForVersion: parseWasmImageOverrides(),
-            wasmSDKURLForVersion: parseWasmSDKURLOverrides(),
-            pullAlways: pullAlways,
-            verbose: verbose,
-            timeoutSeconds: timeoutSeconds,
-            runTests: runTests
+            xcodeForVersion: mergeXcodeOverrides(config: config),
+            toolchainForVersion: mergePerVersion(
+                cli: parseToolchainOverrides(), configValue: config?.toolchain
+            ),
+            linuxImageForVersion: mergePerVersion(
+                cli: parseLinuxImageOverrides(), configValue: config?.linuxImage
+            ),
+            androidImageForVersion: mergePerVersion(
+                cli: parseAndroidImageOverrides(), configValue: config?.androidImage
+            ),
+            wasmImageForVersion: mergePerVersion(
+                cli: parseWasmImageOverrides(), configValue: config?.wasmImage
+            ),
+            wasmSDKURLForVersion: mergePerVersion(
+                cli: parseWasmSDKURLOverrides(), configValue: config?.wasmSDKURL
+            ),
+            pullAlways: pullAlways || (config?.pullAlways ?? false),
+            verbose: verbose || (config?.verbose ?? false),
+            timeoutSeconds: timeoutSeconds ?? config?.timeoutSeconds,
+            runTests: runTests || (config?.test ?? false)
         )
+
+        let effectiveNoLive = noLive || (config?.noLive ?? false)
 
         if !quiet {
             print("Package:   \(path)")
@@ -185,8 +212,8 @@ struct RunCommand: AsyncParsableCommand {
 
         try cache.createDirectories()
         cache.trimOldLogs()
-        let parallelism = max(1, maxParallel ?? (ProcessInfo.processInfo.activeProcessorCount / 2))
-        let useLive = !quiet && !noLive && isStdoutTTY()
+        let parallelism = max(1, maxParallel ?? config?.maxParallel ?? (ProcessInfo.processInfo.activeProcessorCount / 2))
+        let useLive = !quiet && !effectiveNoLive && isStdoutTTY()
         if !quiet {
             print("Logs:      \(cache.runLogDir.path)")
             print("Parallel:  \(parallelism) cell\(parallelism == 1 ? "" : "s") per Swift version")
@@ -414,30 +441,60 @@ struct RunCommand: AsyncParsableCommand {
         )
     }
 
-    private func parseSwiftVersions(_ raw: String?) throws -> [SwiftVersion] {
-        guard let raw, !raw.isEmpty else { return SwiftVersion.allCases }
-        return try raw.split(separator: ",").map { token in
-            let trimmed = token.trimmingCharacters(in: .whitespaces)
-            guard let version = SwiftVersion(rawValue: trimmed) else {
-                throw ValidationError(
-                    "Unknown Swift version: \(trimmed). Allowed: \(SwiftVersion.allCases.map(\.rawValue).joined(separator: ", "))."
-                )
+    private func parseSwiftVersions(_ raw: String?, config: SPCCConfig?) throws -> [SwiftVersion] {
+        if let raw, !raw.isEmpty {
+            return try raw.split(separator: ",").map { token in
+                let trimmed = token.trimmingCharacters(in: .whitespaces)
+                guard let version = SwiftVersion(rawValue: trimmed) else {
+                    throw ValidationError(
+                        "Unknown Swift version: \(trimmed). Allowed: \(SwiftVersion.allCases.map(\.rawValue).joined(separator: ", "))."
+                    )
+                }
+                return version
             }
-            return version
         }
+        if let configVersions = config?.swiftVersions, !configVersions.isEmpty {
+            return configVersions
+        }
+        return SwiftVersion.allCases
     }
 
-    private func parsePlatforms(_ raw: String?) throws -> [Platform] {
-        guard let raw, !raw.isEmpty else { return Platform.allCases }
-        return try raw.split(separator: ",").map { token in
-            let trimmed = token.trimmingCharacters(in: .whitespaces)
-            guard let platform = Platform(rawValue: trimmed) else {
-                throw ValidationError(
-                    "Unknown platform: \(trimmed). Allowed: \(Platform.allCases.map(\.rawValue).joined(separator: ", "))."
-                )
+    private func parsePlatforms(_ raw: String?, config: SPCCConfig?) throws -> [Platform] {
+        if let raw, !raw.isEmpty {
+            return try raw.split(separator: ",").map { token in
+                let trimmed = token.trimmingCharacters(in: .whitespaces)
+                guard let platform = Platform(rawValue: trimmed) else {
+                    throw ValidationError(
+                        "Unknown platform: \(trimmed). Allowed: \(Platform.allCases.map(\.rawValue).joined(separator: ", "))."
+                    )
+                }
+                return platform
             }
-            return platform
         }
+        if let configPlatforms = config?.platforms, !configPlatforms.isEmpty {
+            return configPlatforms
+        }
+        return Platform.allCases
+    }
+
+    /// Merge per-Swift-version maps: CLI value wins; config fills in missing keys.
+    private func mergePerVersion(
+        cli: [SwiftVersion: String],
+        configValue: [SwiftVersion: String]?
+    ) -> [SwiftVersion: String] {
+        guard let configValue, !configValue.isEmpty else { return cli }
+        var merged = configValue
+        for (k, v) in cli { merged[k] = v }
+        return merged
+    }
+
+    /// Same as mergePerVersion but for the Xcode override which is a URL map.
+    private func mergeXcodeOverrides(config: SPCCConfig?) -> [SwiftVersion: URL] {
+        let cli = parseXcodeOverrides()
+        guard let configXcode = config?.xcode, !configXcode.isEmpty else { return cli }
+        var merged: [SwiftVersion: URL] = configXcode.mapValues { URL(fileURLWithPath: $0) }
+        for (k, v) in cli { merged[k] = v }
+        return merged
     }
 
     private func parseXcodeOverrides() -> [SwiftVersion: URL] {

@@ -1,0 +1,30 @@
+# Example config file consumed by `spcc run --config <path>` or
+# `SPCC_CONFIG=<path> spcc run`. Every field is optional; CLI flags override
+# whatever's in here.
+#
+# This file is read by the SPCCConfigTests fixture-roundtrip test and also
+# powers the `just hello-config` recipe — uncomment any field to override
+# the built-in defaults.
+
+# Narrow the matrix axes
+swift_versions = ["6.3"]
+platforms      = ["macos-spm", "linux"]
+
+# Force scheme detection rather than relying on `swift package dump-package`
+# scheme = "HelloWorld"
+
+# Run `swift test` instead of `swift build`
+test = true
+
+# Per-Swift-version Xcode overrides (uncomment when you have multiple Xcodes)
+# [xcode]
+# "6.0" = "/Applications/Xcode-16.2.app"
+# "6.3" = "/Applications/Xcode-26.4.app"
+
+# Per-Swift-version toolchain overrides for macos-spm cells
+# [toolchain]
+# "6.0" = "swift-6.0-RELEASE"
+
+# Per-Swift-version SPI builder image overrides
+# [linux_image]
+# "6.3" = "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest"
