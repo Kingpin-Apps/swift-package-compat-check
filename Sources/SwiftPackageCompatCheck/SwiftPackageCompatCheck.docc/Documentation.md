@@ -6,18 +6,7 @@ Reproduce the [Swift Package Index](https://swiftpackageindex.com) build matrix 
 
 `SwiftPackageCompatCheck` (the `spcc` executable) runs the same `(platform × Swift version)` matrix that SPI runs on its own builders. Same Docker images. Same `xcodebuild` destinations. Same `swift build --swift-sdk` invocations. The output is a `✓`/`✗` matrix you can diff against your package's SPI badge before pushing a tag.
 
-```
-╭──────────────────┬───────────┬───────────┬───────────┬───────────╮
-│ Platform         │ Swift 6.0 │ Swift 6.1 │ Swift 6.2 │ Swift 6.3 │
-├──────────────────┼───────────┼───────────┼───────────┼───────────┤
-│ ios              │ ✓         │ ✓         │ ✓         │ ✓         │
-│ macos-spm        │ ✓         │ ✓         │ ✓         │ ✓         │
-│ macos-xcodebuild │ ✓         │ ✓         │ ✓         │ ✓         │
-│ linux            │ ✓         │ ✓         │ ✓         │ ✓         │
-│ wasm             │ —         │ ✓         │ ✓         │ ✓         │
-│ android          │ —         │ ✓         │ ✓         │ ✓         │
-╰──────────────────┴───────────┴───────────┴───────────┴───────────╯
-```
+![A full matrix run against the bundled HelloWorld fixture — all 34 cells green.](hello-world-matrix)
 
 The default matrix is 9 platforms × 4 Swift versions = 36 cells, minus the 2 SPI doesn't run (android@6.0 and wasm@6.0, shown as `—`) = 34 cells.
 

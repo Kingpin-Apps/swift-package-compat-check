@@ -17,25 +17,7 @@ Install `spcc`, run your first matrix, read the output.
 
 ## Install
 
-### With `just install` (recommended)
-
-The project's `Justfile` bundles a complete universal-binary + codesign + install pipeline:
-
-```bash
-git clone https://github.com/Kingpin-Apps/swift-package-compat-check.git
-cd swift-package-compat-check
-CODESIGN_IDENTITY="Developer ID Application: …" just install
-```
-
-This builds a universal binary (arm64 + x86_64), codesigns it with your Developer ID, and copies it to `~/.local/bin/spcc`. Override the destination with `INSTALL_DIR=/usr/local/bin`.
-
-For Homebrew-style distribution (notarised for Gatekeeper):
-
-```bash
-CODESIGN_IDENTITY="…" just notarize
-```
-
-### From source
+Build from source with Swift Package Manager:
 
 ```bash
 git clone https://github.com/Kingpin-Apps/swift-package-compat-check.git
@@ -43,6 +25,10 @@ cd swift-package-compat-check
 swift build -c release
 cp .build/release/spcc ~/.local/bin/spcc
 ```
+
+Make sure `~/.local/bin` is on your `$PATH` — or copy `spcc` somewhere else that is.
+
+> **Heads up** — a Homebrew tap is planned. This section will be updated with the `brew install …` invocation once it's live.
 
 ### Confirm the install
 
@@ -59,23 +45,19 @@ spcc --help
 spcc run --dry-run
 ```
 
-This prints the matrix that *would* run without actually building anything — useful for verifying scheme detection picked the right target and the platform/version filters look correct.
+This prints the matrix that *would* run without actually building anything — useful for verifying scheme detection picked the right target and the platform/version filters look correct. Cells appear as `?` for "would run" and `—` for SPI-skipped pairs (currently `android × 6.0` and `wasm × 6.0`).
 
-```
-Package:   .
-Scheme:    SwiftNaCl
-Versions:  6.0, 6.1, 6.2, 6.3
-Platforms: ios, macos-spm, macos-xcodebuild, visionos, tvos, watchos, linux, wasm, android
+Drop `--dry-run` and `spcc` actually builds each cell. Here's a full matrix against the bundled HelloWorld fixture — every cell green:
 
-╭──────────────────┬───────────┬───────────┬───────────┬───────────╮
-│ Platform         │ Swift 6.0 │ Swift 6.1 │ Swift 6.2 │ Swift 6.3 │
-├──────────────────┼───────────┼───────────┼───────────┼───────────┤
-│ ios              │ ?         │ ?         │ ?         │ ?         │
-│ macos-spm        │ ?         │ ?         │ ?         │ ?         │
-... (all cells `?` for runnable, `—` for SPI-skipped)
-```
+![A full 34-cell matrix run against the HelloWorld fixture, every cell green.](hello-world-matrix)
 
-Drop `--dry-run` and `spcc` actually builds each cell.
+The header shows what `spcc` resolved:
+
+- **Package** — the path you pointed at (positional argument or `--path`).
+- **Scheme** — auto-detected by `swift package dump-package`; override with `-S`.
+- **Versions / Platforms** — the matrix axes after filtering.
+- **Logs** — where the per-cell logfiles will land (one per cell, plus auto-trim to 5 runs per package — see <doc:CacheManagement>).
+- **Parallel** — how many cells run concurrently within each Swift version (default `activeProcessorCount / 2`; override with `--max-parallel`).
 
 ## Reading the matrix
 

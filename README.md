@@ -7,21 +7,7 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 
 `spcc` reproduces the same `(platform × Swift version)` recipe SPI runs on its own builders — same Docker images, same `xcodebuild` destinations, same `swift build --swift-sdk` invocations — and prints a `✓`/`✗` matrix you can diff against the SPI badge.
 
-```
-╭──────────────────┬───────────┬───────────┬───────────┬───────────╮
-│ Platform         │ Swift 6.0 │ Swift 6.1 │ Swift 6.2 │ Swift 6.3 │
-├──────────────────┼───────────┼───────────┼───────────┼───────────┤
-│ ios              │ ✓         │ ✓         │ ✓         │ ✓         │
-│ macos-spm        │ ✓         │ ✓         │ ✓         │ ✓         │
-│ macos-xcodebuild │ ✓         │ ✓         │ ✓         │ ✓         │
-│ visionos         │ ✓         │ ✓         │ ✓         │ ✓         │
-│ tvos             │ ✓         │ ✓         │ ✓         │ ✓         │
-│ watchos          │ ✓         │ ✓         │ ✓         │ ✓         │
-│ linux            │ ✗         │ ✗         │ ✗         │ ✗         │
-│ wasm             │ —         │ ✓         │ ✓         │ ✓         │
-│ android          │ —         │ ✓         │ ✓         │ ✓         │
-╰──────────────────┴───────────┴───────────┴───────────┴───────────╯
-```
+![A full matrix run against the bundled HelloWorld fixture — all 34 cells green.](Sources/SwiftPackageCompatCheck/SwiftPackageCompatCheck.docc/Resources/hello-world-matrix.png)
 
 ---
 
@@ -38,25 +24,7 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 
 ## Installation
 
-### Option 1 — `just install` (recommended)
-
-The Justfile bundles a full universal-binary + codesign + install pipeline:
-
-```bash
-git clone https://github.com/Kingpin-Apps/swift-package-compat-check.git
-cd swift-package-compat-check
-CODESIGN_IDENTITY="Developer ID Application: ..." just install
-```
-
-By default this installs to `~/.local/bin/spcc`. Override with `INSTALL_DIR=/usr/local/bin`.
-
-For Homebrew-style distribution (notarised for Gatekeeper):
-
-```bash
-CODESIGN_IDENTITY="..." just notarize
-```
-
-### Option 2 — Build from source
+Build from source with Swift Package Manager:
 
 ```bash
 git clone https://github.com/Kingpin-Apps/swift-package-compat-check.git
@@ -64,6 +32,10 @@ cd swift-package-compat-check
 swift build -c release
 cp .build/release/spcc ~/.local/bin/spcc
 ```
+
+Make sure `~/.local/bin` is on your `$PATH` (or copy somewhere else that is).
+
+> A Homebrew tap is planned. This section will be updated with the `brew install …` invocation once it's live.
 
 ---
 
@@ -168,7 +140,6 @@ Improvements over the bash original:
 - Per-cell timeout with Docker label-based container kill.
 - Live updating matrix.
 - Unit tests against every runner.
-- Distributable as a single binary via Homebrew tap.
 
 ---
 

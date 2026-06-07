@@ -31,7 +31,7 @@ The most common cause is qemu emulation on Apple Silicon for Android/Wasm cells,
 error: failed parsing the Swift compiler output: unexpected JSON message: {
 ```
 
-`spcc` handles this automatically — its cross-SDK resolver detects this exact fingerprint and retries up to `SPCC_RETRY_MAX` times (default 2) before falling back. The bash original of this tool treats every non-zero exit as "wrong SDK, fall back to dynamic resolution," which cascades into a multi-architecture bundle build that's 3-9× more work and 3-9× more chances to hit another IPC corruption. The Swift port avoids this.
+`spcc` handles this automatically — its cross-SDK resolver detects this exact fingerprint and retries up to `SPCC_RETRY_MAX` times (default 2) before falling back. 
 
 When you suspect a cell is genuinely stuck (not just slow), add a timeout as a safety net:
 
