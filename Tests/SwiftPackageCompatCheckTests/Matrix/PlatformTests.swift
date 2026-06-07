@@ -13,12 +13,17 @@ struct PlatformTests {
         #expect(Platform.allCases.map(\.rawValue) == expected)
     }
 
-    @Test("xcodebuildDestination uses xrOS for visionos")
-    func visionOSDestinationName() {
-        #expect(Platform.visionos.xcodebuildDestination == "xrOS")
-        #expect(Platform.ios.xcodebuildDestination == "iOS")
-        #expect(Platform.watchos.xcodebuildDestination == "watchOS")
+    @Test("xcodebuildDestination matches SPI's verbatim -destination strings")
+    func destinationStringParity() {
+        #expect(Platform.macosXcodebuild.xcodebuildDestination == "platform=macOS,arch=arm64")
+        #expect(Platform.ios.xcodebuildDestination == "generic/platform=iOS")
+        #expect(Platform.tvos.xcodebuildDestination == "generic/platform=tvOS")
+        #expect(Platform.watchos.xcodebuildDestination == "generic/platform=watchOS")
+        #expect(Platform.visionos.xcodebuildDestination == "generic/platform=xrOS")
+        #expect(Platform.macosSPM.xcodebuildDestination == nil)
         #expect(Platform.linux.xcodebuildDestination == nil)
+        #expect(Platform.wasm.xcodebuildDestination == nil)
+        #expect(Platform.android.xcodebuildDestination == nil)
     }
 }
 

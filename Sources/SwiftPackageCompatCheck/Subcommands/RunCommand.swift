@@ -28,6 +28,30 @@ struct RunCommand: AsyncParsableCommand {
     )
     var scheme: String?
 
+    @Option(name: .customLong("xcode-6.0"), help: "Xcode.app path for Swift 6.0 xcodebuild jobs.")
+    var xcode60: String?
+
+    @Option(name: .customLong("xcode-6.1"), help: "Xcode.app path for Swift 6.1 xcodebuild jobs.")
+    var xcode61: String?
+
+    @Option(name: .customLong("xcode-6.2"), help: "Xcode.app path for Swift 6.2 xcodebuild jobs.")
+    var xcode62: String?
+
+    @Option(name: .customLong("xcode-6.3"), help: "Xcode.app path for Swift 6.3 xcodebuild jobs.")
+    var xcode63: String?
+
+    @Option(name: .customLong("toolchain-6.0"), help: "Toolchain identifier for Swift 6.0 macos-spm jobs.")
+    var toolchain60: String?
+
+    @Option(name: .customLong("toolchain-6.1"), help: "Toolchain identifier for Swift 6.1 macos-spm jobs.")
+    var toolchain61: String?
+
+    @Option(name: .customLong("toolchain-6.2"), help: "Toolchain identifier for Swift 6.2 macos-spm jobs.")
+    var toolchain62: String?
+
+    @Option(name: .customLong("toolchain-6.3"), help: "Toolchain identifier for Swift 6.3 macos-spm jobs.")
+    var toolchain63: String?
+
     @Flag(name: .long, help: "Print the matrix that would run without building anything.")
     var dryRun: Bool = false
 
@@ -52,6 +76,21 @@ struct RunCommand: AsyncParsableCommand {
             }
         }
 
+        let packageURL = URL(fileURLWithPath: path).standardizedFileURL
+        let packageBasename = packageURL.lastPathComponent.isEmpty
+            ? "package"
+            : packageURL.lastPathComponent
+        let cache = CachePaths(
+            root: CachePaths.defaultRoot(),
+            packageBasename: packageBasename,
+            runTimestamp: Self.runTimestamp()
+        )
+        let runOptions = RunOptions(
+            xcodeForVersion: parseXcodeOverrides(),
+            toolchainForVersion: parseToolchainOverrides(),
+            verbose: verbose
+        )
+
         if !quiet {
             print("Package:   \(path)")
             print("Scheme:    \(detectedScheme)")
@@ -60,16 +99,67 @@ struct RunCommand: AsyncParsableCommand {
             print("")
         }
 
-        MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
-            if !pair.isSupportedBySPI { return .skipped }
-            return .pending
+        if dryRun {
+            MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
+                pair.isSupportedBySPI ? .pending : .skipped
+            }
+            return
         }
 
-        if !dryRun {
+        try cache.createDirectories()
+        if !quiet {
+            print("Logs:      \(cache.runLogDir.path)")
             print("")
-            print("spcc run: building cells is not yet implemented (Phase 2-4).")
-            print("Use --dry-run to suppress this message.")
         }
+
+        let context = RunContext(
+            packagePath: packageURL,
+            scheme: detectedScheme,
+            cache: cache,
+            options: runOptions
+        )
+        let dispatcher = MatrixDispatcher()
+
+        var outcomes: [BuildPair: CellOutcome] = [:]
+        for swiftVersion in swiftVersions {
+            for platform in platforms {
+                let pair = BuildPair(platform: platform, swiftVersion: swiftVersion)
+                let outcome = await dispatcher.run(pair: pair, context: context)
+                outcomes[pair] = outcome
+                if !quiet {
+                    let symbol = outcome.state.symbol
+                    let secs = String(format: "%.1fs", outcome.durationSeconds)
+                    print("  \(symbol) \(platform.rawValue) × Swift \(swiftVersion.rawValue) (\(secs))")
+                }
+            }
+        }
+
+        if !quiet { print("") }
+        MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
+            outcomes[pair]?.state ?? (pair.isSupportedBySPI ? .pending : .skipped)
+        }
+
+        let failed = outcomes.values.contains { $0.state == .fail }
+        if failed {
+            throw ExitCode.failure
+        }
+    }
+
+    private static func runTimestamp() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime, .withTimeZone]
+        // Compact, filesystem-safe timestamp similar to bash `date +%Y%m%dT%H%M%S`.
+        let date = Date()
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: date
+        )
+        return String(
+            format: "%04d%02d%02dT%02d%02d%02d",
+            components.year ?? 0, components.month ?? 0, components.day ?? 0,
+            components.hour ?? 0, components.minute ?? 0, components.second ?? 0
+        )
     }
 
     private func parseSwiftVersions(_ raw: String?) throws -> [SwiftVersion] {
@@ -96,5 +186,27 @@ struct RunCommand: AsyncParsableCommand {
             }
             return platform
         }
+    }
+
+    private func parseXcodeOverrides() -> [SwiftVersion: URL] {
+        var map: [SwiftVersion: URL] = [:]
+        let pairs: [(SwiftVersion, String?)] = [
+            (.v6_0, xcode60), (.v6_1, xcode61), (.v6_2, xcode62), (.v6_3, xcode63),
+        ]
+        for (sv, raw) in pairs where raw != nil {
+            map[sv] = URL(fileURLWithPath: raw!)
+        }
+        return map
+    }
+
+    private func parseToolchainOverrides() -> [SwiftVersion: String] {
+        var map: [SwiftVersion: String] = [:]
+        let pairs: [(SwiftVersion, String?)] = [
+            (.v6_0, toolchain60), (.v6_1, toolchain61), (.v6_2, toolchain62), (.v6_3, toolchain63),
+        ]
+        for (sv, raw) in pairs where raw != nil {
+            map[sv] = raw
+        }
+        return map
     }
 }
