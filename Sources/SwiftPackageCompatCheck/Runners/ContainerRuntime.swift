@@ -36,7 +36,7 @@ public extension ContainerRuntime {
     /// whole Docker Desktop VM allotment (typically 8+ GB). 8G matches that
     /// effective posture and leaves headroom even at 5-way matrix parallelism
     /// on a 64 GB host.
-    public static let defaultContainerMemory = "8G"
+    static let defaultContainerMemory = "8G"
 
     /// Leading argv slice for the per-cell `run` invocation. Stops before the
     /// `-v <pkg>:/host -w /host` middle that every cell shares, so the
