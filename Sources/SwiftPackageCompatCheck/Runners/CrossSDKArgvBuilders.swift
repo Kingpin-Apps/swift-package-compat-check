@@ -30,7 +30,8 @@ public enum CrossSDKArgvBuilders {
         swiftVersion: SwiftVersion,
         image: String,
         pullPolicy: String,
-        cellLabel: String? = nil
+        cellLabel: String? = nil,
+        runTests: Bool = false
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -42,7 +43,8 @@ public enum CrossSDKArgvBuilders {
             sdkMatch: "android",
             sdkBuildArg: "aarch64-unknown-linux-android28",
             sdkFallbackURL: "",
-            cellLabel: cellLabel
+            cellLabel: cellLabel,
+            runTests: runTests
         )
     }
 
@@ -53,7 +55,8 @@ public enum CrossSDKArgvBuilders {
         image: String,
         pullPolicy: String,
         fallbackURL: String?,
-        cellLabel: String? = nil
+        cellLabel: String? = nil,
+        runTests: Bool = false
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -65,7 +68,8 @@ public enum CrossSDKArgvBuilders {
             sdkMatch: "wasi$|wasip1$|_wasm$",
             sdkBuildArg: "swift-\(swiftVersion.rawValue)-RELEASE_wasm",
             sdkFallbackURL: fallbackURL ?? "",
-            cellLabel: cellLabel
+            cellLabel: cellLabel,
+            runTests: runTests
         )
     }
 
@@ -79,7 +83,8 @@ public enum CrossSDKArgvBuilders {
         sdkMatch: String,
         sdkBuildArg: String,
         sdkFallbackURL: String,
-        cellLabel: String? = nil
+        cellLabel: String? = nil,
+        runTests: Bool = false
     ) -> [String] {
         let volume = volumeName(
             packageBasename: packageBasename,
@@ -100,6 +105,7 @@ public enum CrossSDKArgvBuilders {
             "-e", "SDK_MATCH=\(sdkMatch)",
             "-e", "SDK_BUILD_ARG=\(sdkBuildArg)",
             "-e", "SDK_FALLBACK_URL=\(sdkFallbackURL)",
+            "-e", "SDK_ACTION=\(runTests ? "test" : "build")",
         ]
         if let label = cellLabel {
             argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
@@ -140,7 +146,7 @@ public enum CrossSDKArgvBuilders {
           set +e
           (
             set -o pipefail
-            swift build --swift-sdk "$sdk" --scratch-path /build 2>&1 | tee "$tmplog"
+            swift "${SDK_ACTION:-build}" --swift-sdk "$sdk" --scratch-path /build 2>&1 | tee "$tmplog"
           )
           local rc=$?
           set -e

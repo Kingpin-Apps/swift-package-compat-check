@@ -14,6 +14,13 @@ public struct RunOptions: Sendable {
     /// When set, docker-backed runners attach a label and kill the container if
     /// the cell exceeds the budget.
     public var timeoutSeconds: Double?
+    /// When `true`, every runner replaces `swift build` with `swift test` (or
+    /// `xcodebuild build` with `xcodebuild test`). xcodebuild destinations for
+    /// iOS/tvOS/watchOS/visionOS shift to the matching Simulator SDK since
+    /// `xcodebuild test` rejects generic device destinations. Cross-SDK cells
+    /// (android, wasm) pass `swift test --swift-sdk` through, which compiles
+    /// the tests but typically can't execute them without a target device.
+    public var runTests: Bool
 
     public init(
         xcodeForVersion: [SwiftVersion: URL] = [:],
@@ -24,7 +31,8 @@ public struct RunOptions: Sendable {
         wasmSDKURLForVersion: [SwiftVersion: String] = [:],
         pullAlways: Bool = false,
         verbose: Bool = false,
-        timeoutSeconds: Double? = nil
+        timeoutSeconds: Double? = nil,
+        runTests: Bool = false
     ) {
         self.xcodeForVersion = xcodeForVersion
         self.toolchainForVersion = toolchainForVersion
@@ -35,6 +43,7 @@ public struct RunOptions: Sendable {
         self.pullAlways = pullAlways
         self.verbose = verbose
         self.timeoutSeconds = timeoutSeconds
+        self.runTests = runTests
     }
 
     /// `DEVELOPER_DIR=<xcode>/Contents/Developer` for the given Swift version,

@@ -39,7 +39,8 @@ public struct CrossSDKRunner: Sendable {
                 swiftVersion: pair.swiftVersion,
                 image: image,
                 pullPolicy: context.options.pullPolicy,
-                cellLabel: cellLabel
+                cellLabel: cellLabel,
+                runTests: context.options.runTests
             )
         case .wasm:
             arguments = CrossSDKArgvBuilders.wasm(
@@ -50,7 +51,8 @@ public struct CrossSDKRunner: Sendable {
                 pullPolicy: context.options.pullPolicy,
                 fallbackURL: context.options.wasmSDKURLForVersion[pair.swiftVersion]
                     ?? Platform.wasm.defaultWasmSDKURL(for: pair.swiftVersion),
-                cellLabel: cellLabel
+                cellLabel: cellLabel,
+                runTests: context.options.runTests
             )
         default:
             return CellOutcome(state: .pending)

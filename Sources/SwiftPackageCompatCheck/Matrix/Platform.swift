@@ -17,13 +17,22 @@ public enum Platform: String, CaseIterable, Codable, Sendable, CustomStringConve
     /// `xrOS`, not `visionOS` (SPI's terminology gotcha, preserved verbatim).
     /// Returns `nil` for platforms that aren't built via xcodebuild.
     public var xcodebuildDestination: String? {
+        xcodebuildDestination(runningTests: false)
+    }
+
+    /// Same as ``xcodebuildDestination``, but when `runningTests` is `true`
+    /// returns a destination compatible with `xcodebuild test`. iOS/tvOS/watchOS/
+    /// visionOS need to target a Simulator SDK rather than the device SDK,
+    /// otherwise `xcodebuild test` errors with `requires destination: a device`.
+    /// macOS stays the same (the macOS destination is test-compatible already).
+    public func xcodebuildDestination(runningTests: Bool) -> String? {
         switch self {
-        case .macosXcodebuild: "platform=macOS,arch=arm64"
-        case .ios: "generic/platform=iOS"
-        case .tvos: "generic/platform=tvOS"
-        case .watchos: "generic/platform=watchOS"
-        case .visionos: "generic/platform=xrOS"
-        case .macosSPM, .linux, .wasm, .android: nil
+        case .macosXcodebuild: return "platform=macOS,arch=arm64"
+        case .ios: return runningTests ? "generic/platform=iOS Simulator" : "generic/platform=iOS"
+        case .tvos: return runningTests ? "generic/platform=tvOS Simulator" : "generic/platform=tvOS"
+        case .watchos: return runningTests ? "generic/platform=watchOS Simulator" : "generic/platform=watchOS"
+        case .visionos: return runningTests ? "generic/platform=xrOS Simulator" : "generic/platform=xrOS"
+        case .macosSPM, .linux, .wasm, .android: return nil
         }
     }
 }

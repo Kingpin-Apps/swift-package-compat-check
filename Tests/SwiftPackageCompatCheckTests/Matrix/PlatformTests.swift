@@ -25,6 +25,20 @@ struct PlatformTests {
         #expect(Platform.wasm.xcodebuildDestination == nil)
         #expect(Platform.android.xcodebuildDestination == nil)
     }
+
+    @Test("xcodebuildDestination(runningTests:) swaps non-macOS Apple platforms to Simulator")
+    func destinationStringForTests() {
+        // macOS is test-compatible without changes.
+        #expect(Platform.macosXcodebuild.xcodebuildDestination(runningTests: true) == "platform=macOS,arch=arm64")
+        // Non-macOS Apple platforms shift to Simulator SDKs.
+        #expect(Platform.ios.xcodebuildDestination(runningTests: true) == "generic/platform=iOS Simulator")
+        #expect(Platform.tvos.xcodebuildDestination(runningTests: true) == "generic/platform=tvOS Simulator")
+        #expect(Platform.watchos.xcodebuildDestination(runningTests: true) == "generic/platform=watchOS Simulator")
+        #expect(Platform.visionos.xcodebuildDestination(runningTests: true) == "generic/platform=xrOS Simulator")
+        // Non-xcodebuild platforms still return nil.
+        #expect(Platform.linux.xcodebuildDestination(runningTests: true) == nil)
+        #expect(Platform.macosSPM.xcodebuildDestination(runningTests: true) == nil)
+    }
 }
 
 @Suite("SwiftVersion")

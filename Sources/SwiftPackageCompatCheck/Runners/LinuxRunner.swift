@@ -33,7 +33,8 @@ public struct LinuxRunner: Sendable {
             swiftVersion: pair.swiftVersion,
             image: image,
             pullPolicy: context.options.pullPolicy,
-            cellLabel: cellLabel
+            cellLabel: cellLabel,
+            runTests: context.options.runTests
         )
 
         let logPath = context.cache.logPath(for: pair)

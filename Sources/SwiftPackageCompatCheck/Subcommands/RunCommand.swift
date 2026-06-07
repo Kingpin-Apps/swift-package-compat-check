@@ -112,6 +112,12 @@ struct RunCommand: AsyncParsableCommand {
     )
     var timeoutSeconds: Double?
 
+    @Flag(
+        name: [.customShort("t"), .customLong("test")],
+        help: "Run `swift test` (or `xcodebuild test`) instead of `swift build` for each cell."
+    )
+    var runTests: Bool = false
+
     @Flag(name: .customLong("no-live"), help: "Disable the live-updating matrix; stream one line per cell + final matrix instead.")
     var noLive: Bool = false
 
@@ -158,7 +164,8 @@ struct RunCommand: AsyncParsableCommand {
             wasmSDKURLForVersion: parseWasmSDKURLOverrides(),
             pullAlways: pullAlways,
             verbose: verbose,
-            timeoutSeconds: timeoutSeconds
+            timeoutSeconds: timeoutSeconds,
+            runTests: runTests
         )
 
         if !quiet {

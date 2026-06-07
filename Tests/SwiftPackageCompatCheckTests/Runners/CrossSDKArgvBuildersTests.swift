@@ -53,6 +53,27 @@ struct CrossSDKArgvBuildersTests {
         #expect(argv.contains("--pull=always"))
     }
 
+    @Test("--test flag propagates SDK_ACTION=test to the container env")
+    func sdkActionDefault() {
+        let buildArgv = CrossSDKArgvBuilders.android(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "p",
+            swiftVersion: .v6_3,
+            image: "img",
+            pullPolicy: "missing"
+        )
+        let testArgv = CrossSDKArgvBuilders.android(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "p",
+            swiftVersion: .v6_3,
+            image: "img",
+            pullPolicy: "missing",
+            runTests: true
+        )
+        #expect(buildArgv.contains("SDK_ACTION=build"))
+        #expect(testArgv.contains("SDK_ACTION=test"))
+    }
+
     @Test("Resolver script tries SPI-style fast path before falling back")
     func resolverScriptShape() {
         let script = CrossSDKArgvBuilders.resolverScript

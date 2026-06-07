@@ -86,6 +86,30 @@ For wasm specifically, the cross-SDK resolver inside the container falls back to
 spcc run --wasm-sdk-url-6.3 https://internal.example/sdk.zip
 ```
 
+## Running tests instead of just building
+
+By default each cell runs `swift build` (or `xcodebuild build`) — matching SPI's own matrix, which is build-compatibility only. To run the package's test suite per cell instead, pass `-t` / `--test`:
+
+```bash
+spcc run --test                              # whole matrix runs `swift test`
+spcc run --test -p macos-spm,linux -s 6.3    # one row's worth of tests
+```
+
+What changes per platform:
+
+| Platform | Build mode | Test mode |
+|----------|------------|-----------|
+| `macos-spm` | `xcrun swift build --arch arm64` | `xcrun swift test --arch arm64` |
+| `macos-xcodebuild` | `xcodebuild build … -destination platform=macOS,arch=arm64` | `xcodebuild test …` (same destination — macOS is test-compatible) |
+| `ios` / `tvos` / `watchos` / `visionos` | `xcodebuild build … -destination generic/platform=<SDK>` | `xcodebuild test … -destination generic/platform=<SDK> Simulator` (Simulator SDK required by `xcodebuild test`) |
+| `linux` | `docker run … swift build --triple x86_64-unknown-linux-gnu` | `docker run … swift test --triple x86_64-unknown-linux-gnu` |
+| `android` / `wasm` | `docker run … swift build --swift-sdk <triple>` | `docker run … swift test --swift-sdk <triple>` (SwiftPM compiles the test target but typically can't execute the binary without a target device — expect failures unless your package has cross-SDK test infrastructure) |
+
+Caveats worth knowing:
+
+- A cell fails with `error: no tests found; create a target in the 'Tests' directory` when the package has no test target. That's a real SwiftPM error, not a `spcc` bug — narrow with `-p` if you don't want every platform reporting it.
+- Cross-SDK cells (`android`, `wasm`) typically fail in test mode because there's no native Linux/wasm runtime to execute the tests in. Narrow with `-p` to avoid noise, or use test mode only for Apple + Linux.
+
 ## Concurrency and timeouts
 
 ```bash

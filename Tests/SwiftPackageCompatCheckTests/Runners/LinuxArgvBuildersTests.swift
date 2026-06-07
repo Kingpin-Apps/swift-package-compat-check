@@ -58,6 +58,21 @@ struct LinuxArgvBuildersTests {
         #expect(argv.contains("--pull=always"))
         #expect(!argv.contains("--pull=missing"))
     }
+
+    @Test("--test flag swaps swift build → swift test inside the bash body")
+    func linuxTestMode() {
+        let argv = LinuxArgvBuilders.docker(
+            packagePath: URL(fileURLWithPath: "/x"),
+            packageBasename: "p",
+            swiftVersion: .v6_3,
+            image: "img",
+            pullPolicy: "missing",
+            runTests: true
+        )
+        let script = try! #require(argv.last)
+        #expect(script.contains("swift test --triple x86_64-unknown-linux-gnu"))
+        #expect(!script.contains("swift build --triple"))
+    }
 }
 
 @Suite("Platform.defaultDockerImage")

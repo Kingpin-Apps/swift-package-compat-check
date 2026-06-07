@@ -77,4 +77,43 @@ struct AppleArgvBuildersTests {
         )
         #expect(argv == nil)
     }
+
+    @Test("--test flag swaps macos-spm action to `swift test`")
+    func macosSPMTestMode() {
+        let argv = AppleArgvBuilders.macosSPM(toolchain: nil, runTests: true)
+        #expect(argv == ["xcrun", "swift", "test", "--arch", "arm64"])
+    }
+
+    @Test("--test flag swaps xcodebuild action AND adds 'Simulator' to non-macOS destinations")
+    func xcodebuildTestMode() {
+        let pair = BuildPair(platform: .ios, swiftVersion: .v6_3)
+        let argv = AppleArgvBuilders.xcodebuild(
+            pair: pair,
+            scheme: "Pkg",
+            derivedDataPath: URL(fileURLWithPath: "/d"),
+            clonedPackagesPath: URL(fileURLWithPath: "/c"),
+            runTests: true
+        )
+        let array = try! #require(argv)
+        // Action keyword flipped from "build" to "test"
+        #expect(array.contains("test"))
+        #expect(!array.contains("build"))
+        // Destination flipped to Simulator
+        #expect(array.contains("generic/platform=iOS Simulator"))
+    }
+
+    @Test("--test for macos-xcodebuild keeps the device destination (already test-compatible)")
+    func macosXcodebuildTestMode() {
+        let pair = BuildPair(platform: .macosXcodebuild, swiftVersion: .v6_3)
+        let argv = AppleArgvBuilders.xcodebuild(
+            pair: pair,
+            scheme: "Pkg",
+            derivedDataPath: URL(fileURLWithPath: "/d"),
+            clonedPackagesPath: URL(fileURLWithPath: "/c"),
+            runTests: true
+        )
+        let array = try! #require(argv)
+        #expect(array.contains("test"))
+        #expect(array.contains("platform=macOS,arch=arm64"))
+    }
 }

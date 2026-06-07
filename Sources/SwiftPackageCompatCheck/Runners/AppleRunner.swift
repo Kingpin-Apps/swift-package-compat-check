@@ -28,14 +28,16 @@ public struct AppleRunner: Sendable {
         switch pair.platform {
         case .macosSPM:
             arguments = AppleArgvBuilders.macosSPM(
-                toolchain: context.options.toolchainForVersion[pair.swiftVersion]
+                toolchain: context.options.toolchainForVersion[pair.swiftVersion],
+                runTests: context.options.runTests
             )
         case .macosXcodebuild, .ios, .tvos, .watchos, .visionos:
             guard let argv = AppleArgvBuilders.xcodebuild(
                 pair: pair,
                 scheme: context.scheme,
                 derivedDataPath: context.cache.derivedDataDir(for: pair),
-                clonedPackagesPath: context.cache.clonedPackagesDir
+                clonedPackagesPath: context.cache.clonedPackagesDir,
+                runTests: context.options.runTests
             ) else {
                 return CellOutcome(
                     state: .fail,

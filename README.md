@@ -54,6 +54,9 @@ spcc run -p macos-spm,linux -s 6.3
 # Run against a package elsewhere
 spcc run --path ~/Projects/swift-nacl
 
+# Run `swift test` per cell instead of `swift build`
+spcc run --test -p macos-spm,linux -s 6.3
+
 # Smoke-test spcc itself against the bundled HelloWorld fixture
 just hello
 ```

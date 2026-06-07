@@ -35,7 +35,8 @@ public enum LinuxArgvBuilders {
         swiftVersion: SwiftVersion,
         image: String,
         pullPolicy: String,
-        cellLabel: String? = nil
+        cellLabel: String? = nil,
+        runTests: Bool = false
     ) -> [String] {
         let volume = volumeName(packageBasename: packageBasename, swiftVersion: swiftVersion)
         var argv: [String] = [
@@ -54,11 +55,12 @@ public enum LinuxArgvBuilders {
             argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
         }
         argv.append(image)
+        let action = runTests ? "test" : "build"
         argv.append(contentsOf: [
             "bash", "-c", """
                 set -euo pipefail
                 swift --version
-                swift build --triple x86_64-unknown-linux-gnu --scratch-path \(scratchMountPath)
+                swift \(action) --triple x86_64-unknown-linux-gnu --scratch-path \(scratchMountPath)
                 """,
         ])
         return argv
