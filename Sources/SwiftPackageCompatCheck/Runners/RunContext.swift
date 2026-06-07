@@ -1,18 +1,24 @@
 import Foundation
 
-/// Per-version overrides parsed from the `--xcode-X.Y` and `--toolchain-X.Y` flags.
+/// Per-version overrides and global toggles parsed from the CLI flags.
 public struct RunOptions: Sendable {
     public var xcodeForVersion: [SwiftVersion: URL]
     public var toolchainForVersion: [SwiftVersion: String]
+    public var linuxImageForVersion: [SwiftVersion: String]
+    public var pullAlways: Bool
     public var verbose: Bool
 
     public init(
         xcodeForVersion: [SwiftVersion: URL] = [:],
         toolchainForVersion: [SwiftVersion: String] = [:],
+        linuxImageForVersion: [SwiftVersion: String] = [:],
+        pullAlways: Bool = false,
         verbose: Bool = false
     ) {
         self.xcodeForVersion = xcodeForVersion
         self.toolchainForVersion = toolchainForVersion
+        self.linuxImageForVersion = linuxImageForVersion
+        self.pullAlways = pullAlways
         self.verbose = verbose
     }
 
@@ -21,6 +27,26 @@ public struct RunOptions: Sendable {
     public func developerDir(for version: SwiftVersion) -> String? {
         xcodeForVersion[version]
             .map { $0.appendingPathComponent("Contents/Developer").path }
+    }
+
+    /// `--pull=always` (when toggled) or `--pull=missing` (default) for docker
+    /// invocations. Matches the bash script's `PULL_POLICY` default of `missing`.
+    public var pullPolicy: String { pullAlways ? "always" : "missing" }
+}
+
+public extension Platform {
+    /// SPI's public builder image tag for this platform + Swift version, in the
+    /// `registry.gitlab.com/swiftpackageindex/spi-images:<plat>-<sv>-latest` shape.
+    /// Returns `nil` for Apple platforms (no docker image needed).
+    func defaultDockerImage(for swiftVersion: SwiftVersion) -> String? {
+        let suffix: String
+        switch self {
+        case .linux: suffix = "basic"
+        case .android: suffix = "android"
+        case .wasm: suffix = "wasm"
+        default: return nil
+        }
+        return "registry.gitlab.com/swiftpackageindex/spi-images:\(suffix)-\(swiftVersion.rawValue)-latest"
     }
 }
 

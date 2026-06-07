@@ -52,6 +52,21 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .customLong("toolchain-6.3"), help: "Toolchain identifier for Swift 6.3 macos-spm jobs.")
     var toolchain63: String?
 
+    @Option(name: .customLong("linux-image-6.0"), help: "Override the Linux builder image for Swift 6.0 (default: SPI's basic-6.0-latest).")
+    var linuxImage60: String?
+
+    @Option(name: .customLong("linux-image-6.1"), help: "Override the Linux builder image for Swift 6.1.")
+    var linuxImage61: String?
+
+    @Option(name: .customLong("linux-image-6.2"), help: "Override the Linux builder image for Swift 6.2.")
+    var linuxImage62: String?
+
+    @Option(name: .customLong("linux-image-6.3"), help: "Override the Linux builder image for Swift 6.3.")
+    var linuxImage63: String?
+
+    @Flag(name: .customLong("pull-always"), help: "Pass --pull=always to docker (default: --pull=missing).")
+    var pullAlways: Bool = false
+
     @Flag(name: .long, help: "Print the matrix that would run without building anything.")
     var dryRun: Bool = false
 
@@ -88,6 +103,8 @@ struct RunCommand: AsyncParsableCommand {
         let runOptions = RunOptions(
             xcodeForVersion: parseXcodeOverrides(),
             toolchainForVersion: parseToolchainOverrides(),
+            linuxImageForVersion: parseLinuxImageOverrides(),
+            pullAlways: pullAlways,
             verbose: verbose
         )
 
@@ -203,6 +220,17 @@ struct RunCommand: AsyncParsableCommand {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
             (.v6_0, toolchain60), (.v6_1, toolchain61), (.v6_2, toolchain62), (.v6_3, toolchain63),
+        ]
+        for (sv, raw) in pairs where raw != nil {
+            map[sv] = raw
+        }
+        return map
+    }
+
+    private func parseLinuxImageOverrides() -> [SwiftVersion: String] {
+        var map: [SwiftVersion: String] = [:]
+        let pairs: [(SwiftVersion, String?)] = [
+            (.v6_0, linuxImage60), (.v6_1, linuxImage61), (.v6_2, linuxImage62), (.v6_3, linuxImage63),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
