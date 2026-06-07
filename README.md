@@ -189,4 +189,4 @@ See the DocC catalog for the architecture overview and how runners are layered.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
