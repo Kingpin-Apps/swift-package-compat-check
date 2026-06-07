@@ -1,6 +1,8 @@
 # ── Configurable variables ───────────────────────────────────────────────────
-# Developer ID Application certificate (set with CODESIGN_IDENTITY=... just sign)
-CODESIGN_IDENTITY := env_var("CODESIGN_IDENTITY")
+# Developer ID Application certificate. Required by sign/notarize/install only;
+# other recipes don't need it, so it's optional at the Justfile level. Set with
+# CODESIGN_IDENTITY=... just sign  (or export it once in your shell).
+CODESIGN_IDENTITY := env_var_or_default("CODESIGN_IDENTITY", "")
 
 # Keychain profile for notarytool — set up once with:
 #   xcrun notarytool store-credentials "spcc-notarytool" \
@@ -22,6 +24,14 @@ clean:
 
 test:
     swift test
+
+# Smoke-test spcc against the bundled HelloWorld fixture (macos-spm + linux, ~15s warm)
+hello:
+    swift run spcc run -p macos-spm,linux -s 6.3 Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
+
+# Full 34-cell matrix against HelloWorld (slow on first run; pulls all SPI images)
+hello-full:
+    swift run spcc run Tests/SwiftPackageCompatCheckTests/Fixtures/HelloWorld
 
 # Build for the current host architecture only (fast, for development)
 release:
