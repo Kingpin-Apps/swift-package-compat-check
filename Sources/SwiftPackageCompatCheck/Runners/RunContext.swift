@@ -5,6 +5,9 @@ public struct RunOptions: Sendable {
     public var xcodeForVersion: [SwiftVersion: URL]
     public var toolchainForVersion: [SwiftVersion: String]
     public var linuxImageForVersion: [SwiftVersion: String]
+    public var androidImageForVersion: [SwiftVersion: String]
+    public var wasmImageForVersion: [SwiftVersion: String]
+    public var wasmSDKURLForVersion: [SwiftVersion: String]
     public var pullAlways: Bool
     public var verbose: Bool
 
@@ -12,12 +15,18 @@ public struct RunOptions: Sendable {
         xcodeForVersion: [SwiftVersion: URL] = [:],
         toolchainForVersion: [SwiftVersion: String] = [:],
         linuxImageForVersion: [SwiftVersion: String] = [:],
+        androidImageForVersion: [SwiftVersion: String] = [:],
+        wasmImageForVersion: [SwiftVersion: String] = [:],
+        wasmSDKURLForVersion: [SwiftVersion: String] = [:],
         pullAlways: Bool = false,
         verbose: Bool = false
     ) {
         self.xcodeForVersion = xcodeForVersion
         self.toolchainForVersion = toolchainForVersion
         self.linuxImageForVersion = linuxImageForVersion
+        self.androidImageForVersion = androidImageForVersion
+        self.wasmImageForVersion = wasmImageForVersion
+        self.wasmSDKURLForVersion = wasmSDKURLForVersion
         self.pullAlways = pullAlways
         self.verbose = verbose
     }
@@ -47,6 +56,22 @@ public extension Platform {
         default: return nil
         }
         return "registry.gitlab.com/swiftpackageindex/spi-images:\(suffix)-\(swiftVersion.rawValue)-latest"
+    }
+
+    /// Default wasm SDK artifact-bundle URL used by the bash resolver when the SPI
+    /// image's bundled SDKs don't match. Returns `nil` for non-wasm platforms.
+    /// Mirrors the bash script's `WASM_SDK_URL_FOR` defaults verbatim.
+    func defaultWasmSDKURL(for swiftVersion: SwiftVersion) -> String? {
+        guard self == .wasm else { return nil }
+        switch swiftVersion {
+        case .v6_0: return nil  // SPI doesn't build wasm on 6.0
+        case .v6_1:
+            return "https://github.com/swiftwasm/swift/releases/download/swift-wasm-6.1-RELEASE/swift-wasm-6.1-RELEASE-wasm32-unknown-wasi.artifactbundle.zip"
+        case .v6_2:
+            return "https://github.com/swiftwasm/swift/releases/download/swift-wasm-6.2-RELEASE/swift-wasm-6.2-RELEASE-wasm32-unknown-wasip1.artifactbundle.zip"
+        case .v6_3:
+            return "https://github.com/swiftwasm/swift/releases/download/swift-wasm-6.3-RELEASE/swift-wasm-6.3-RELEASE-wasm32-unknown-wasip1.artifactbundle.zip"
+        }
     }
 }
 

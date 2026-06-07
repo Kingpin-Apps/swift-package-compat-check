@@ -2,15 +2,16 @@ import Command
 import Foundation
 
 /// Routes each `BuildPair` to the runner that owns its platform. Apple cells go to
-/// `AppleRunner`, Linux cells to `LinuxRunner`. Android/Wasm return `.pending`
-/// until Phase 4 adds their docker-backed runners.
+/// `AppleRunner`, Linux to `LinuxRunner`, Android/Wasm to `CrossSDKRunner`.
 public struct MatrixDispatcher: Sendable {
     private let appleRunner: AppleRunner
     private let linuxRunner: LinuxRunner
+    private let crossSDKRunner: CrossSDKRunner
 
     public init(commandRunner: any CommandRunning = CommandRunner()) {
         self.appleRunner = AppleRunner(commandRunner: commandRunner)
         self.linuxRunner = LinuxRunner(commandRunner: commandRunner)
+        self.crossSDKRunner = CrossSDKRunner(commandRunner: commandRunner)
     }
 
     public func run(pair: BuildPair, context: RunContext) async -> CellOutcome {
@@ -23,7 +24,9 @@ public struct MatrixDispatcher: Sendable {
         if LinuxRunner.supportedPlatforms.contains(pair.platform) {
             return await linuxRunner.run(pair: pair, context: context)
         }
-        // Android / Wasm — Phase 4.
+        if CrossSDKRunner.supportedPlatforms.contains(pair.platform) {
+            return await crossSDKRunner.run(pair: pair, context: context)
+        }
         return CellOutcome(state: .pending)
     }
 }

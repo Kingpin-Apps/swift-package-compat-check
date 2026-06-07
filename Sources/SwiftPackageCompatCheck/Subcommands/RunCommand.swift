@@ -64,6 +64,33 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .customLong("linux-image-6.3"), help: "Override the Linux builder image for Swift 6.3.")
     var linuxImage63: String?
 
+    @Option(name: .customLong("android-image-6.1"), help: "Override the Android builder image for Swift 6.1.")
+    var androidImage61: String?
+
+    @Option(name: .customLong("android-image-6.2"), help: "Override the Android builder image for Swift 6.2.")
+    var androidImage62: String?
+
+    @Option(name: .customLong("android-image-6.3"), help: "Override the Android builder image for Swift 6.3.")
+    var androidImage63: String?
+
+    @Option(name: .customLong("wasm-image-6.1"), help: "Override the Wasm builder image for Swift 6.1.")
+    var wasmImage61: String?
+
+    @Option(name: .customLong("wasm-image-6.2"), help: "Override the Wasm builder image for Swift 6.2.")
+    var wasmImage62: String?
+
+    @Option(name: .customLong("wasm-image-6.3"), help: "Override the Wasm builder image for Swift 6.3.")
+    var wasmImage63: String?
+
+    @Option(name: .customLong("wasm-sdk-url-6.1"), help: "Override the Wasm SDK fallback URL for Swift 6.1.")
+    var wasmSDKURL61: String?
+
+    @Option(name: .customLong("wasm-sdk-url-6.2"), help: "Override the Wasm SDK fallback URL for Swift 6.2.")
+    var wasmSDKURL62: String?
+
+    @Option(name: .customLong("wasm-sdk-url-6.3"), help: "Override the Wasm SDK fallback URL for Swift 6.3.")
+    var wasmSDKURL63: String?
+
     @Flag(name: .customLong("pull-always"), help: "Pass --pull=always to docker (default: --pull=missing).")
     var pullAlways: Bool = false
 
@@ -104,6 +131,9 @@ struct RunCommand: AsyncParsableCommand {
             xcodeForVersion: parseXcodeOverrides(),
             toolchainForVersion: parseToolchainOverrides(),
             linuxImageForVersion: parseLinuxImageOverrides(),
+            androidImageForVersion: parseAndroidImageOverrides(),
+            wasmImageForVersion: parseWasmImageOverrides(),
+            wasmSDKURLForVersion: parseWasmSDKURLOverrides(),
             pullAlways: pullAlways,
             verbose: verbose
         )
@@ -231,6 +261,39 @@ struct RunCommand: AsyncParsableCommand {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
             (.v6_0, linuxImage60), (.v6_1, linuxImage61), (.v6_2, linuxImage62), (.v6_3, linuxImage63),
+        ]
+        for (sv, raw) in pairs where raw != nil {
+            map[sv] = raw
+        }
+        return map
+    }
+
+    private func parseAndroidImageOverrides() -> [SwiftVersion: String] {
+        var map: [SwiftVersion: String] = [:]
+        let pairs: [(SwiftVersion, String?)] = [
+            (.v6_1, androidImage61), (.v6_2, androidImage62), (.v6_3, androidImage63),
+        ]
+        for (sv, raw) in pairs where raw != nil {
+            map[sv] = raw
+        }
+        return map
+    }
+
+    private func parseWasmImageOverrides() -> [SwiftVersion: String] {
+        var map: [SwiftVersion: String] = [:]
+        let pairs: [(SwiftVersion, String?)] = [
+            (.v6_1, wasmImage61), (.v6_2, wasmImage62), (.v6_3, wasmImage63),
+        ]
+        for (sv, raw) in pairs where raw != nil {
+            map[sv] = raw
+        }
+        return map
+    }
+
+    private func parseWasmSDKURLOverrides() -> [SwiftVersion: String] {
+        var map: [SwiftVersion: String] = [:]
+        let pairs: [(SwiftVersion, String?)] = [
+            (.v6_1, wasmSDKURL61), (.v6_2, wasmSDKURL62), (.v6_3, wasmSDKURL63),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
