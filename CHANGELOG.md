@@ -1,3 +1,14 @@
+## 0.4.0 (2026-06-07)
+
+### Feat
+
+- opt-in --container-runtime flag for apple/container
+
+### Fix
+
+- change access level of defaultContainerMemory to internal
+- cap apple/container cells at 8G memory (1GB default OOM-kills builds)
+
 ## 0.3.0 (2026-06-07)
 
 ### Feat
