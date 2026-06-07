@@ -1,3 +1,9 @@
+## 0.2.0 (2026-06-07)
+
+### Feat
+
+- add -t / --test flag to run `swift test` per cell
+
 ## 0.1.0 (2026-06-06)
 
 ### Feat
