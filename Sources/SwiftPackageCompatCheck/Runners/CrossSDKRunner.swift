@@ -29,6 +29,7 @@ public struct CrossSDKRunner: Sendable {
             )
         }
 
+        let cellLabel = "\(context.cache.runTimestamp)-\(pair.platform.rawValue)-\(pair.swiftVersion.rawValue)"
         let arguments: [String]
         switch pair.platform {
         case .android:
@@ -37,7 +38,8 @@ public struct CrossSDKRunner: Sendable {
                 packageBasename: context.cache.packageBasename,
                 swiftVersion: pair.swiftVersion,
                 image: image,
-                pullPolicy: context.options.pullPolicy
+                pullPolicy: context.options.pullPolicy,
+                cellLabel: cellLabel
             )
         case .wasm:
             arguments = CrossSDKArgvBuilders.wasm(
@@ -47,7 +49,8 @@ public struct CrossSDKRunner: Sendable {
                 image: image,
                 pullPolicy: context.options.pullPolicy,
                 fallbackURL: context.options.wasmSDKURLForVersion[pair.swiftVersion]
-                    ?? Platform.wasm.defaultWasmSDKURL(for: pair.swiftVersion)
+                    ?? Platform.wasm.defaultWasmSDKURL(for: pair.swiftVersion),
+                cellLabel: cellLabel
             )
         default:
             return CellOutcome(state: .pending)
@@ -58,7 +61,9 @@ public struct CrossSDKRunner: Sendable {
             arguments: arguments,
             environment: ProcessInfo.processInfo.environment,
             workingDirectory: nil,
-            logPath: logPath
+            logPath: logPath,
+            timeoutSeconds: context.options.timeoutSeconds,
+            onTimeout: { await LogStreamer.defaultDockerKill(cellLabel) }
         )
         return result.cellOutcome(logPath: logPath)
     }

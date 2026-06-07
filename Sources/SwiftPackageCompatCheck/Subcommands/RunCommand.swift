@@ -106,6 +106,12 @@ struct RunCommand: AsyncParsableCommand {
     )
     var maxParallel: Int?
 
+    @Option(
+        name: .customLong("timeout"),
+        help: "Per-cell wall-clock timeout in seconds. Docker containers are killed by label on timeout. Default: no timeout."
+    )
+    var timeoutSeconds: Double?
+
     @Flag(name: .customLong("no-live"), help: "Disable the live-updating matrix; stream one line per cell + final matrix instead.")
     var noLive: Bool = false
 
@@ -151,7 +157,8 @@ struct RunCommand: AsyncParsableCommand {
             wasmImageForVersion: parseWasmImageOverrides(),
             wasmSDKURLForVersion: parseWasmSDKURLOverrides(),
             pullAlways: pullAlways,
-            verbose: verbose
+            verbose: verbose,
+            timeoutSeconds: timeoutSeconds
         )
 
         if !quiet {

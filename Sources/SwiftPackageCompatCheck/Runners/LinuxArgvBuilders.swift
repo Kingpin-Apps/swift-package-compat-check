@@ -34,10 +34,11 @@ public enum LinuxArgvBuilders {
         packageBasename: String,
         swiftVersion: SwiftVersion,
         image: String,
-        pullPolicy: String
+        pullPolicy: String,
+        cellLabel: String? = nil
     ) -> [String] {
         let volume = volumeName(packageBasename: packageBasename, swiftVersion: swiftVersion)
-        return [
+        var argv: [String] = [
             "docker", "run",
             "--pull=\(pullPolicy)",
             "--rm",
@@ -48,12 +49,18 @@ public enum LinuxArgvBuilders {
             "-e", "JAVA_HOME=/root/.sdkman/candidates/java/current",
             "-e", "SPI_BUILD=1",
             "-e", "SPI_PROCESSING=1",
-            image,
+        ]
+        if let label = cellLabel {
+            argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
+        }
+        argv.append(image)
+        argv.append(contentsOf: [
             "bash", "-c", """
                 set -euo pipefail
                 swift --version
                 swift build --triple x86_64-unknown-linux-gnu --scratch-path \(scratchMountPath)
                 """,
-        ]
+        ])
+        return argv
     }
 }

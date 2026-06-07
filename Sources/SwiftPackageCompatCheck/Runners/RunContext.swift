@@ -10,6 +10,10 @@ public struct RunOptions: Sendable {
     public var wasmSDKURLForVersion: [SwiftVersion: String]
     public var pullAlways: Bool
     public var verbose: Bool
+    /// Per-cell wall-clock timeout in seconds. `nil` disables timeouts entirely.
+    /// When set, docker-backed runners attach a label and kill the container if
+    /// the cell exceeds the budget.
+    public var timeoutSeconds: Double?
 
     public init(
         xcodeForVersion: [SwiftVersion: URL] = [:],
@@ -19,7 +23,8 @@ public struct RunOptions: Sendable {
         wasmImageForVersion: [SwiftVersion: String] = [:],
         wasmSDKURLForVersion: [SwiftVersion: String] = [:],
         pullAlways: Bool = false,
-        verbose: Bool = false
+        verbose: Bool = false,
+        timeoutSeconds: Double? = nil
     ) {
         self.xcodeForVersion = xcodeForVersion
         self.toolchainForVersion = toolchainForVersion
@@ -29,6 +34,7 @@ public struct RunOptions: Sendable {
         self.wasmSDKURLForVersion = wasmSDKURLForVersion
         self.pullAlways = pullAlways
         self.verbose = verbose
+        self.timeoutSeconds = timeoutSeconds
     }
 
     /// `DEVELOPER_DIR=<xcode>/Contents/Developer` for the given Swift version,

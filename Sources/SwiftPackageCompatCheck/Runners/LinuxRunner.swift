@@ -26,12 +26,14 @@ public struct LinuxRunner: Sendable {
             )
         }
 
+        let cellLabel = "\(context.cache.runTimestamp)-\(pair.platform.rawValue)-\(pair.swiftVersion.rawValue)"
         let arguments = LinuxArgvBuilders.docker(
             packagePath: context.packagePath,
             packageBasename: context.cache.packageBasename,
             swiftVersion: pair.swiftVersion,
             image: image,
-            pullPolicy: context.options.pullPolicy
+            pullPolicy: context.options.pullPolicy,
+            cellLabel: cellLabel
         )
 
         let logPath = context.cache.logPath(for: pair)
@@ -39,7 +41,9 @@ public struct LinuxRunner: Sendable {
             arguments: arguments,
             environment: ProcessInfo.processInfo.environment,
             workingDirectory: nil,
-            logPath: logPath
+            logPath: logPath,
+            timeoutSeconds: context.options.timeoutSeconds,
+            onTimeout: { await LogStreamer.defaultDockerKill(cellLabel) }
         )
         return result.cellOutcome(logPath: logPath)
     }

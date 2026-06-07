@@ -29,7 +29,8 @@ public enum CrossSDKArgvBuilders {
         packageBasename: String,
         swiftVersion: SwiftVersion,
         image: String,
-        pullPolicy: String
+        pullPolicy: String,
+        cellLabel: String? = nil
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -40,7 +41,8 @@ public enum CrossSDKArgvBuilders {
             pullPolicy: pullPolicy,
             sdkMatch: "android",
             sdkBuildArg: "aarch64-unknown-linux-android28",
-            sdkFallbackURL: ""
+            sdkFallbackURL: "",
+            cellLabel: cellLabel
         )
     }
 
@@ -50,7 +52,8 @@ public enum CrossSDKArgvBuilders {
         swiftVersion: SwiftVersion,
         image: String,
         pullPolicy: String,
-        fallbackURL: String?
+        fallbackURL: String?,
+        cellLabel: String? = nil
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -61,7 +64,8 @@ public enum CrossSDKArgvBuilders {
             pullPolicy: pullPolicy,
             sdkMatch: "wasi$|wasip1$|_wasm$",
             sdkBuildArg: "swift-\(swiftVersion.rawValue)-RELEASE_wasm",
-            sdkFallbackURL: fallbackURL ?? ""
+            sdkFallbackURL: fallbackURL ?? "",
+            cellLabel: cellLabel
         )
     }
 
@@ -74,14 +78,15 @@ public enum CrossSDKArgvBuilders {
         pullPolicy: String,
         sdkMatch: String,
         sdkBuildArg: String,
-        sdkFallbackURL: String
+        sdkFallbackURL: String,
+        cellLabel: String? = nil
     ) -> [String] {
         let volume = volumeName(
             packageBasename: packageBasename,
             platform: platform,
             swiftVersion: swiftVersion
         )
-        return [
+        var argv: [String] = [
             "docker", "run",
             "--pull=\(pullPolicy)",
             "--rm",
@@ -95,9 +100,13 @@ public enum CrossSDKArgvBuilders {
             "-e", "SDK_MATCH=\(sdkMatch)",
             "-e", "SDK_BUILD_ARG=\(sdkBuildArg)",
             "-e", "SDK_FALLBACK_URL=\(sdkFallbackURL)",
-            image,
-            "bash", "-c", resolverScript,
         ]
+        if let label = cellLabel {
+            argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
+        }
+        argv.append(image)
+        argv.append(contentsOf: ["bash", "-c", resolverScript])
+        return argv
     }
 
     /// The full bash resolver lifted from `spi-compat-check.sh`'s `run_cross_sdk`

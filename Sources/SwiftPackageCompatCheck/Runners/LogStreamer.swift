@@ -13,6 +13,39 @@ struct LogStreamer: Sendable {
         self.commandRunner = commandRunner
     }
 
+    /// Container-kill hook the timeout watchdog calls when a cell exceeds its
+    /// budget. Default invokes `docker kill --filter "label=spcc-cell=<label>"`
+    /// against any container the runner labelled. Tests override to keep the
+    /// `RecordingCommandRunner` shape consistent.
+    typealias KillHandler = @Sendable (String) async -> Void
+
+    static let defaultDockerKill: KillHandler = { label in
+        let runner = CommandRunner()
+        let ids = await Self.captureLines(
+            runner: runner,
+            arguments: ["docker", "ps", "--filter", "label=spcc-cell=\(label)", "-q"]
+        )
+        for id in ids {
+            _ = await Self.captureLines(runner: runner, arguments: ["docker", "kill", id])
+        }
+    }
+
+    private static func captureLines(
+        runner: any CommandRunning, arguments: [String]
+    ) async -> [String] {
+        var stdout = Data()
+        do {
+            for try await event in runner.run(arguments: arguments) {
+                if case .standardOutput(let bytes) = event {
+                    stdout.append(contentsOf: bytes)
+                }
+            }
+        } catch { return [] }
+        return String(data: stdout, encoding: .utf8)?
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init) ?? []
+    }
+
     enum Result: Sendable {
         case success(durationSeconds: Double)
         case failure(message: String, durationSeconds: Double)
@@ -37,11 +70,18 @@ struct LogStreamer: Sendable {
     /// for choosing the cwd / environment / argv. Returns `.success` if the stream
     /// completes without throwing; `.failure(message)` if the subprocess exits
     /// non-zero or the stream throws for any other reason.
+    ///
+    /// When `timeoutSeconds` is set, a watchdog task races against the subprocess
+    /// stream and calls `onTimeout` if the budget is exceeded. For docker-backed
+    /// runners `onTimeout` should fire `docker kill` against a container labelled
+    /// with `cellLabel` — Task cancellation alone wouldn't reach the container.
     func run(
         arguments: [String],
         environment: [String: String],
         workingDirectory: Path.AbsolutePath?,
-        logPath: URL
+        logPath: URL,
+        timeoutSeconds: Double? = nil,
+        onTimeout: (@Sendable () async -> Void)? = nil
     ) async -> Result {
         let fm = FileManager.default
         try? fm.createDirectory(
@@ -57,6 +97,69 @@ struct LogStreamer: Sendable {
 
         let start = ContinuousClock.now
 
+        // Fast path: no timeout configured, run the stream directly.
+        guard let timeoutSeconds, timeoutSeconds > 0 else {
+            return await streamUntilExit(
+                arguments: arguments,
+                environment: environment,
+                workingDirectory: workingDirectory,
+                logHandle: logHandle,
+                start: start
+            )
+        }
+
+        return await withTaskGroup(of: TimedRunResult.self) { group in
+            group.addTask {
+                let result = await self.streamUntilExit(
+                    arguments: arguments,
+                    environment: environment,
+                    workingDirectory: workingDirectory,
+                    logHandle: logHandle,
+                    start: start
+                )
+                return .completed(result)
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(timeoutSeconds))
+                if Task.isCancelled { return .timedOut(false) }
+                await onTimeout?()
+                return .timedOut(true)
+            }
+            guard let first = await group.next() else {
+                group.cancelAll()
+                return .failure(message: "task group returned no results", durationSeconds: 0)
+            }
+            switch first {
+            case .completed(let r):
+                group.cancelAll()
+                return r
+            case .timedOut(let killed):
+                let elapsed = Self.elapsedSeconds(since: start)
+                let reason = killed
+                    ? "timed out after \(Int(timeoutSeconds))s; container killed"
+                    : "timed out after \(Int(timeoutSeconds))s"
+                try? logHandle.write(contentsOf: Array("\nspcc: \(reason)\n".utf8))
+                // Cancel the streaming task BEFORE draining it — otherwise
+                // group.next() would wait the full natural duration.
+                group.cancelAll()
+                _ = await group.next()
+                return .failure(message: reason, durationSeconds: elapsed)
+            }
+        }
+    }
+
+    private enum TimedRunResult: Sendable {
+        case completed(Result)
+        case timedOut(Bool)
+    }
+
+    private func streamUntilExit(
+        arguments: [String],
+        environment: [String: String],
+        workingDirectory: Path.AbsolutePath?,
+        logHandle: FileHandle,
+        start: ContinuousClock.Instant
+    ) async -> Result {
         do {
             for try await event in commandRunner.run(
                 arguments: arguments,
