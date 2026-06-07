@@ -27,7 +27,7 @@ struct ContainerRuntimeRunArgvHeadTests {
         #expect(!argv.contains("--pull=missing"))
     }
 
-    @Test("container omits --pull and emits --name <sanitised>")
+    @Test("container omits --pull, emits --name <sanitised>, and caps memory")
     func containerHead() {
         let argv = ContainerRuntime.container.runArgvHead(
             cellLabel: "20260607T120000-linux-6.3",
@@ -38,9 +38,21 @@ struct ContainerRuntimeRunArgvHeadTests {
             "--rm",
             "--platform", "linux/amd64",
             "--name", "spcc-cell-20260607T120000-linux-6.3",
+            "-m", ContainerRuntime.defaultContainerMemory,
         ])
         // Container never carries the docker --pull flag.
         #expect(!argv.contains { $0.hasPrefix("--pull=") })
+    }
+
+    @Test("container memory override replaces the default")
+    func containerMemoryOverride() {
+        let argv = ContainerRuntime.container.runArgvHead(
+            cellLabel: "x", pullPolicy: .missing, memory: "16G"
+        )
+        // Find the -m and check the value that follows.
+        let idx = try! #require(argv.firstIndex(of: "-m"))
+        #expect(argv[idx + 1] == "16G")
+        #expect(!argv.contains(ContainerRuntime.defaultContainerMemory))
     }
 
     @Test("container appends --rosetta only when useRosetta == true")

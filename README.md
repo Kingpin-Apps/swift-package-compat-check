@@ -125,7 +125,9 @@ Notable runtime differences:
 
 - apple/container has no `--pull` on `run`. spcc handles pulls as an explicit `container image pull` pre-step, deduped across concurrent cells.
 - apple/container has no `list --filter label=`. The timeout watchdog sets a deterministic `--name spcc-cell-<RUN_TS>-<platform>-<sv>` at launch and kills by name.
+- apple/container caps per-container memory at **1 GB by default**, which OOM-kills any non-toy Swift build. spcc sets `-m 8G` for the container path (`ContainerRuntime.defaultContainerMemory`) so cells get a comparable allotment to what they'd see under Docker Desktop's VM. Docker imposes no equivalent cap, so the docker argv is unchanged.
 - The macOS 15 minimum stays unchanged. apple/container's macOS-26-only features (container-to-container networking) aren't used by spcc.
+- Pair `--container-runtime container` with `--timeout` (e.g. `--timeout 1800`) when running long matrices unattended. Without a timeout, a stuck cell sits indefinitely rather than failing fast.
 
 ## Caches
 

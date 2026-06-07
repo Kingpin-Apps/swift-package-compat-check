@@ -29,6 +29,15 @@ public enum ContainerRuntime: String, Sendable, CaseIterable, Codable {
 }
 
 public extension ContainerRuntime {
+    /// Default per-container memory cap for apple/container. Container 0.12's
+    /// own default is 1 GB, which OOM-kills Swift compilation of any non-toy
+    /// package (cardano-core wasm 6.3 reproducibly SIGKILLs at that limit).
+    /// Docker doesn't impose a per-container cap — containers can use the
+    /// whole Docker Desktop VM allotment (typically 8+ GB). 8G matches that
+    /// effective posture and leaves headroom even at 5-way matrix parallelism
+    /// on a 64 GB host.
+    public static let defaultContainerMemory = "8G"
+
     /// Leading argv slice for the per-cell `run` invocation. Stops before the
     /// `-v <pkg>:/host -w /host` middle that every cell shares, so the
     /// `LinuxArgvBuilders` / `CrossSDKArgvBuilders` can append their constants
@@ -43,11 +52,13 @@ public extension ContainerRuntime {
     /// for direct kill-by-name.
     ///
     /// `useRosetta` is only meaningful on container; docker emulates amd64
-    /// via its own qemu path regardless.
+    /// via its own qemu path regardless. `memory` is only applied on the
+    /// container path (docker has no equivalent default to override).
     func runArgvHead(
         cellLabel: String,
         pullPolicy: PullPolicy,
-        useRosetta: Bool = false
+        useRosetta: Bool = false,
+        memory: String? = nil
     ) -> [String] {
         switch self {
         case .docker:
@@ -63,6 +74,7 @@ public extension ContainerRuntime {
                 "--rm",
                 "--platform", "linux/amd64",
                 "--name", Self.sanitiseCellName(cellLabel),
+                "-m", memory ?? Self.defaultContainerMemory,
             ]
             if useRosetta {
                 head.append("--rosetta")
