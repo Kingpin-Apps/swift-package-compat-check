@@ -100,6 +100,9 @@ struct RunCommand: AsyncParsableCommand {
     )
     var maxParallel: Int?
 
+    @Flag(name: .customLong("no-live"), help: "Disable the live-updating matrix; stream one line per cell + final matrix instead.")
+    var noLive: Bool = false
+
     @Flag(name: .long, help: "Print the matrix that would run without building anything.")
     var dryRun: Bool = false
 
@@ -162,6 +165,7 @@ struct RunCommand: AsyncParsableCommand {
         try cache.createDirectories()
         cache.trimOldLogs()
         let parallelism = max(1, maxParallel ?? (ProcessInfo.processInfo.activeProcessorCount / 2))
+        let useLive = !quiet && !noLive && isStdoutTTY()
         if !quiet {
             print("Logs:      \(cache.runLogDir.path)")
             print("Parallel:  \(parallelism) cell\(parallelism == 1 ? "" : "s") per Swift version")
@@ -176,27 +180,23 @@ struct RunCommand: AsyncParsableCommand {
         )
         let dispatcher = MatrixDispatcher()
 
-        var outcomes: [BuildPair: CellOutcome] = [:]
-        // Hold Swift version constant, fan out across platforms — preferred axis
-        // per [[spi-compat-swift-port]] § Concurrency upside: reuses each version's
-        // docker image cache and SDK volume, avoids saturating the host with N×4
-        // concurrent xcodebuild/docker processes.
-        for swiftVersion in swiftVersions {
-            let results = await runCellsConcurrently(
+        let outcomes: [BuildPair: CellOutcome]
+        if useLive {
+            outcomes = await runLive(
                 platforms: platforms,
-                swiftVersion: swiftVersion,
+                swiftVersions: swiftVersions,
                 context: context,
                 dispatcher: dispatcher,
-                maxParallel: parallelism
+                parallelism: parallelism
             )
-            for (pair, outcome) in results {
-                outcomes[pair] = outcome
-            }
-        }
-
-        if !quiet { print("") }
-        MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
-            outcomes[pair]?.state ?? (pair.isSupportedBySPI ? .pending : .skipped)
+        } else {
+            outcomes = await runStreaming(
+                platforms: platforms,
+                swiftVersions: swiftVersions,
+                context: context,
+                dispatcher: dispatcher,
+                parallelism: parallelism
+            )
         }
 
         let failed = outcomes.values.contains { $0.state == .fail }
@@ -205,25 +205,120 @@ struct RunCommand: AsyncParsableCommand {
         }
     }
 
+    /// Live-updating matrix mode: paints the table once with all cells `?`, then
+    /// redraws in place as cells flip to `⋯` (running) → `✓`/`✗`. Nothing else may
+    /// write to stdout while this is in flight — Noora's renderer is stateful and
+    /// any interleaved `print` would desynchronise the cursor math.
+    private func runLive(
+        platforms: [Platform],
+        swiftVersions: [SwiftVersion],
+        context: RunContext,
+        dispatcher: MatrixDispatcher,
+        parallelism: Int
+    ) async -> [BuildPair: CellOutcome] {
+        let (stream, continuation) = AsyncStream<[BuildPair: CellState]>.makeStream()
+        let initialState: @Sendable (BuildPair) -> CellState = { pair in
+            pair.isSupportedBySPI ? .pending : .skipped
+        }
+
+        // Pre-populate the snapshot so unsupported cells render `—` on the very
+        // first paint instead of `?`.
+        var snapshot: [BuildPair: CellState] = [:]
+        for sv in swiftVersions {
+            for p in platforms {
+                let pair = BuildPair(platform: p, swiftVersion: sv)
+                snapshot[pair] = initialState(pair)
+            }
+        }
+
+        async let renderTask: () = MatrixRenderer().renderLive(
+            platforms: platforms,
+            swiftVersions: swiftVersions,
+            initialState: initialState,
+            updates: stream
+        )
+
+        var outcomes: [BuildPair: CellOutcome] = [:]
+        for swiftVersion in swiftVersions {
+            await runCellsConcurrently(
+                platforms: platforms,
+                swiftVersion: swiftVersion,
+                context: context,
+                dispatcher: dispatcher,
+                maxParallel: parallelism,
+                onStart: { pair in
+                    snapshot[pair] = .running
+                    continuation.yield(snapshot)
+                },
+                onComplete: { pair, outcome in
+                    outcomes[pair] = outcome
+                    snapshot[pair] = outcome.state
+                    continuation.yield(snapshot)
+                }
+            )
+        }
+        continuation.finish()
+        await renderTask
+        return outcomes
+    }
+
+    /// Streaming + final-matrix mode: prints one `✓ ios × Swift 6.3 (9.2s)` line per
+    /// cell as it completes, then renders the canonical matrix once at the end. Used
+    /// when stdout is piped, `--no-live` is set, or `-q` (which also suppresses the
+    /// streaming lines).
+    private func runStreaming(
+        platforms: [Platform],
+        swiftVersions: [SwiftVersion],
+        context: RunContext,
+        dispatcher: MatrixDispatcher,
+        parallelism: Int
+    ) async -> [BuildPair: CellOutcome] {
+        let isQuiet = quiet
+        var outcomes: [BuildPair: CellOutcome] = [:]
+        for swiftVersion in swiftVersions {
+            await runCellsConcurrently(
+                platforms: platforms,
+                swiftVersion: swiftVersion,
+                context: context,
+                dispatcher: dispatcher,
+                maxParallel: parallelism,
+                onStart: nil,
+                onComplete: { pair, outcome in
+                    outcomes[pair] = outcome
+                    if !isQuiet {
+                        let symbol = outcome.state.symbol
+                        let secs = String(format: "%.1fs", outcome.durationSeconds)
+                        print("  \(symbol) \(pair.platform.rawValue) × Swift \(pair.swiftVersion.rawValue) (\(secs))")
+                    }
+                }
+            )
+        }
+        if !isQuiet { print("") }
+        MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
+            outcomes[pair]?.state ?? (pair.isSupportedBySPI ? .pending : .skipped)
+        }
+        return outcomes
+    }
+
     /// Bounded per-Swift-version fan-out: at most `maxParallel` platform cells run
-    /// concurrently. Cells stream their `✓`/`✗` line as soon as they complete; the
-    /// canonical matrix render at the end uses `MatrixRenderer` ordering.
+    /// concurrently. Reports cell lifecycle via the callbacks; emits no output itself.
     private func runCellsConcurrently(
         platforms: [Platform],
         swiftVersion: SwiftVersion,
         context: RunContext,
         dispatcher: MatrixDispatcher,
-        maxParallel: Int
-    ) async -> [(BuildPair, CellOutcome)] {
-        let isQuiet = quiet
+        maxParallel: Int,
+        onStart: ((BuildPair) -> Void)?,
+        onComplete: (BuildPair, CellOutcome) -> Void
+    ) async {
         let pairs = platforms.map { BuildPair(platform: $0, swiftVersion: swiftVersion) }
-        return await withTaskGroup(of: (BuildPair, CellOutcome).self) { group in
+        await withTaskGroup(of: (BuildPair, CellOutcome).self) { group in
             var iterator = pairs.makeIterator()
             var inFlight = 0
-            var results: [(BuildPair, CellOutcome)] = []
 
             func enqueueNext() -> Bool {
                 guard let pair = iterator.next() else { return false }
+                onStart?(pair)
                 group.addTask {
                     let outcome = await dispatcher.run(pair: pair, context: context)
                     return (pair, outcome)
@@ -236,15 +331,9 @@ struct RunCommand: AsyncParsableCommand {
 
             while let result = await group.next() {
                 inFlight -= 1
-                results.append(result)
-                if !isQuiet {
-                    let symbol = result.1.state.symbol
-                    let secs = String(format: "%.1fs", result.1.durationSeconds)
-                    print("  \(symbol) \(result.0.platform.rawValue) × Swift \(result.0.swiftVersion.rawValue) (\(secs))")
-                }
+                onComplete(result.0, result.1)
                 _ = enqueueNext()
             }
-            return results
         }
     }
 
