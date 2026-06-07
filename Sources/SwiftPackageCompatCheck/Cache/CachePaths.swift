@@ -69,4 +69,36 @@ public struct CachePaths: Sendable, Equatable {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }
+
+    /// Auto-trim the package's log directory to the `maxRuns` most recent timestamped
+    /// subdirectories, preserving the current run. Mirrors the bash script's
+    /// `trim_old_logs` (`ls -1t | tail -n +$((MAX_LOG_RUNS + 1))`).
+    public func trimOldLogs(maxRuns: Int = 5) {
+        let logsRoot = root
+            .appendingPathComponent("logs", isDirectory: true)
+            .appendingPathComponent(packageBasename, isDirectory: true)
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: logsRoot,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let dirs = entries.filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        let sorted = dirs.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? .distantPast
+            return lhsDate > rhsDate
+        }
+        guard sorted.count > maxRuns else { return }
+
+        for url in sorted.dropFirst(maxRuns) {
+            if url.lastPathComponent == runTimestamp { continue }
+            try? fm.removeItem(at: url)
+        }
+    }
 }

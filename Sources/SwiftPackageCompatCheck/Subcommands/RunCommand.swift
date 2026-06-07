@@ -94,6 +94,12 @@ struct RunCommand: AsyncParsableCommand {
     @Flag(name: .customLong("pull-always"), help: "Pass --pull=always to docker (default: --pull=missing).")
     var pullAlways: Bool = false
 
+    @Option(
+        name: .customLong("max-parallel"),
+        help: "Max cells to run concurrently within each Swift version (default: activeProcessorCount / 2)."
+    )
+    var maxParallel: Int?
+
     @Flag(name: .long, help: "Print the matrix that would run without building anything.")
     var dryRun: Bool = false
 
@@ -154,8 +160,11 @@ struct RunCommand: AsyncParsableCommand {
         }
 
         try cache.createDirectories()
+        cache.trimOldLogs()
+        let parallelism = max(1, maxParallel ?? (ProcessInfo.processInfo.activeProcessorCount / 2))
         if !quiet {
             print("Logs:      \(cache.runLogDir.path)")
+            print("Parallel:  \(parallelism) cell\(parallelism == 1 ? "" : "s") per Swift version")
             print("")
         }
 
@@ -168,16 +177,20 @@ struct RunCommand: AsyncParsableCommand {
         let dispatcher = MatrixDispatcher()
 
         var outcomes: [BuildPair: CellOutcome] = [:]
+        // Hold Swift version constant, fan out across platforms — preferred axis
+        // per [[spi-compat-swift-port]] § Concurrency upside: reuses each version's
+        // docker image cache and SDK volume, avoids saturating the host with N×4
+        // concurrent xcodebuild/docker processes.
         for swiftVersion in swiftVersions {
-            for platform in platforms {
-                let pair = BuildPair(platform: platform, swiftVersion: swiftVersion)
-                let outcome = await dispatcher.run(pair: pair, context: context)
+            let results = await runCellsConcurrently(
+                platforms: platforms,
+                swiftVersion: swiftVersion,
+                context: context,
+                dispatcher: dispatcher,
+                maxParallel: parallelism
+            )
+            for (pair, outcome) in results {
                 outcomes[pair] = outcome
-                if !quiet {
-                    let symbol = outcome.state.symbol
-                    let secs = String(format: "%.1fs", outcome.durationSeconds)
-                    print("  \(symbol) \(platform.rawValue) × Swift \(swiftVersion.rawValue) (\(secs))")
-                }
             }
         }
 
@@ -189,6 +202,49 @@ struct RunCommand: AsyncParsableCommand {
         let failed = outcomes.values.contains { $0.state == .fail }
         if failed {
             throw ExitCode.failure
+        }
+    }
+
+    /// Bounded per-Swift-version fan-out: at most `maxParallel` platform cells run
+    /// concurrently. Cells stream their `✓`/`✗` line as soon as they complete; the
+    /// canonical matrix render at the end uses `MatrixRenderer` ordering.
+    private func runCellsConcurrently(
+        platforms: [Platform],
+        swiftVersion: SwiftVersion,
+        context: RunContext,
+        dispatcher: MatrixDispatcher,
+        maxParallel: Int
+    ) async -> [(BuildPair, CellOutcome)] {
+        let isQuiet = quiet
+        let pairs = platforms.map { BuildPair(platform: $0, swiftVersion: swiftVersion) }
+        return await withTaskGroup(of: (BuildPair, CellOutcome).self) { group in
+            var iterator = pairs.makeIterator()
+            var inFlight = 0
+            var results: [(BuildPair, CellOutcome)] = []
+
+            func enqueueNext() -> Bool {
+                guard let pair = iterator.next() else { return false }
+                group.addTask {
+                    let outcome = await dispatcher.run(pair: pair, context: context)
+                    return (pair, outcome)
+                }
+                inFlight += 1
+                return true
+            }
+
+            while inFlight < maxParallel, enqueueNext() {}
+
+            while let result = await group.next() {
+                inFlight -= 1
+                results.append(result)
+                if !isQuiet {
+                    let symbol = result.1.state.symbol
+                    let secs = String(format: "%.1fs", result.1.durationSeconds)
+                    print("  \(symbol) \(result.0.platform.rawValue) × Swift \(result.0.swiftVersion.rawValue) (\(secs))")
+                }
+                _ = enqueueNext()
+            }
+            return results
         }
     }
 

@@ -1,4 +1,5 @@
 import ArgumentParser
+import Foundation
 
 struct ImagesCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -10,6 +11,21 @@ struct ImagesCommand: AsyncParsableCommand {
     var remove: Bool = false
 
     func run() async throws {
-        print("spcc images: not yet implemented (Phase 5)")
+        let ops = CleanupOps()
+        let images = await ops.listSPIImages()
+        if images.isEmpty {
+            print("No SPI builder images cached locally.")
+            return
+        }
+        if remove {
+            for image in images {
+                print("docker rmi \(image.reference)")
+                await ops.removeImage(image.reference)
+            }
+        } else {
+            for image in images {
+                print("\(image.size)\t\(image.reference)")
+            }
+        }
     }
 }

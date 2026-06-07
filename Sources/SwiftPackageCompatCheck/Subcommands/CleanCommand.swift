@@ -1,4 +1,5 @@
 import ArgumentParser
+import Foundation
 
 struct CleanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -10,6 +11,23 @@ struct CleanCommand: AsyncParsableCommand {
     var path: String = "."
 
     func run() async throws {
-        print("spcc clean: not yet implemented (Phase 5)")
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let basename = url.lastPathComponent.isEmpty ? "package" : url.lastPathComponent
+        let root = CachePaths.defaultRoot()
+        let ops = CleanupOps()
+
+        print("Cleaning caches for package: \(basename)")
+        for sub in ["logs", "derived-data", "cloned-packages"] {
+            let dir = root.appendingPathComponent(sub).appendingPathComponent(basename)
+            if FileManager.default.fileExists(atPath: dir.path) {
+                print("  rm -rf \(dir.path)")
+                try? FileManager.default.removeItem(at: dir)
+            }
+        }
+        for volume in await ops.listPackageVolumes(packageBasename: basename) {
+            print("  docker volume rm \(volume)")
+            await ops.removeVolume(volume)
+        }
+        print("Done.")
     }
 }
