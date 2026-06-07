@@ -1,3 +1,9 @@
+## 0.3.0 (2026-06-07)
+
+### Feat
+
+- --config flag / SPCC_CONFIG env var for persistent defaults
+
 ## 0.2.0 (2026-06-07)
 
 ### Feat
