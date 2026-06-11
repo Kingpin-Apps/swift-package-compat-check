@@ -16,7 +16,7 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 | Requirement | Version | Why |
 |-------------|---------|-----|
 | macOS       | 15+     | Required by `swift-configuration-toml`; matches the rest of the Kingpin Swift stack. |
-| Swift       | 6.3+    | `swift-tools-version: 6.3` and Swift 6 strict concurrency. |
+| Swift       | 6.2+    | `swift-tools-version: 6.2` and Swift 6 strict concurrency. |
 | Xcode       | 26.4+   | For `xcodebuild` cells. Multiple Xcodes can be selected per Swift version via `--xcode-6.X`. |
 | Container runtime | Docker (any modern release) or [apple/container](https://github.com/apple/container) 0.12+ | For `linux`, `android`, `wasm` cells. Apple cells don't need either. Default is `docker`; pass `--container-runtime container` to opt into apple/container (experimental — see [Container runtime](#container-runtime) below). |
 
