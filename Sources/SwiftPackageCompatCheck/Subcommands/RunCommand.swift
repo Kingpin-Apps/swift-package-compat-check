@@ -242,7 +242,7 @@ struct RunCommand: AsyncParsableCommand {
         let effectiveNoLive = noLive || (config?.noLive ?? false)
 
         if !quiet {
-            print("Package:   \(path)")
+            print("Package:   \(packageBasename)")
             print("Scheme:    \(detectedScheme)")
             print("Versions:  \(swiftVersions.map(\.rawValue).joined(separator: ", "))")
             print("Platforms: \(platforms.map(\.rawValue).joined(separator: ", "))")
