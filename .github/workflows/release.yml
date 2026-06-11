@@ -9,36 +9,41 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the release on a green build + test of the exact tagged commit. The
+  # Swift workflow only runs on branch/PR pushes, not tags, so we re-run the
+  # suite here rather than assuming `main` was green when the tag was cut.
+  test:
+    name: Build & test
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Print toolchain
+        run: swift --version
+      - name: Build
+        run: swift build -v
+      - name: Test
+        run: swift test -v --parallel
+
   release:
+    needs: test
     runs-on: macos-15
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select latest Xcode
-        run: |
-          set -euo pipefail
-          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$LATEST" ]; then
-            echo "::error::No Xcode found under /Applications" >&2
-            exit 1
-          fi
-          echo "Selecting $LATEST"
-          sudo xcode-select -s "$LATEST"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
-      - name: Print toolchain and verify Swift version
+      - name: Print toolchain
         run: |
-          set -euo pipefail
           swift --version
           xcodebuild -version
-          REQUIRED="6.3"
-          SWIFT_VER=$(swift --version | grep -oE 'Swift version [0-9]+\.[0-9]+' | head -1 | awk '{print $3}')
-          if [ "$(printf '%s\n%s\n' "$REQUIRED" "$SWIFT_VER" | sort -V | head -1)" != "$REQUIRED" ]; then
-            echo "::error::Swift $SWIFT_VER is older than the required $REQUIRED (Package.swift declares swift-tools-version 6.3). Available Xcodes:" >&2
-            ls -d /Applications/Xcode_*.app >&2
-            exit 1
-          fi
 
       - name: Import Developer ID cert into temporary keychain
         env:
