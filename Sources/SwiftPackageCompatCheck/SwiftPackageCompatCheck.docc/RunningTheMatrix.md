@@ -110,6 +110,46 @@ Caveats worth knowing:
 - A cell fails with `error: no tests found; create a target in the 'Tests' directory` when the package has no test target. That's a real SwiftPM error, not a `spcc` bug — narrow with `-p` if you don't want every platform reporting it.
 - Cross-SDK cells (`android`, `wasm`) typically fail in test mode because there's no native Linux/wasm runtime to execute the tests in. Narrow with `-p` to avoid noise, or use test mode only for Apple + Linux.
 
+### Serial test execution
+
+Modern Swift Testing runs test cases in parallel within a single process by default. For suites that share global state — a gnupg keyring, a fixed TCP port, a temp directory, a process-wide singleton — that parallelism causes flaky, order-dependent failures. `--test-no-parallel` forces each cell's tests to run serially:
+
+```bash
+spcc run --test --test-no-parallel -p macos-spm,linux -s 6.3
+```
+
+| Platform | Effect |
+|----------|--------|
+| `macos-spm`, `linux`, `android`, `wasm` | appends `--no-parallel` to `swift test` |
+| `macos-xcodebuild`, `ios`, `tvos`, `watchos`, `visionos` | appends `-parallel-testing-enabled NO` to `xcodebuild test` |
+
+**This is not `--max-parallel`.** `--max-parallel` bounds how many *cells* of the matrix run concurrently (one process per cell); `--test-no-parallel` bounds parallelism *inside* a single cell's test process. They're independent — you can run 4 cells at once where each runs its tests serially. The flag only applies with `--test`; in build mode it's a no-op (a note is printed if you pass it without `--test`).
+
+## Installing test dependencies
+
+Some packages' tests need a system binary or library that the bare SPI images and a stock Mac don't ship — e.g. swift-gnupg shells out to `gpg`, or a C-wrapper needs `-dev` headers to build the test target. Two flags pull those in, each targeting the environment its cells actually run in:
+
+```bash
+spcc run --test \
+  --install-host gnupg \                       # brew install on the Mac (Apple cells)
+  --install-container "gnupg,libgcrypt20-dev" \ # apt-get inside each container (linux/android/wasm)
+  -p macos-spm,linux -s 6.3
+```
+
+| Flag | Manager | Where | Lifetime | When it runs |
+|------|---------|-------|----------|--------------|
+| `--install-host` | `brew install` | the host Mac, shared by all Apple cells | **persists** on your machine | once, up front, before the matrix — only if an Apple platform is selected |
+| `--install-container` | `apt-get install` | inside each Linux/Android/Wasm container | ephemeral (container is `--rm`) | per cell, before that cell's build/test body |
+
+Both take a comma-separated list and both are **gated behind `--test`** — a plain `spcc run` build installs nothing, and passing them without `--test` prints a note and ignores them. The same lists can live in a config file as `install_host` / `install_container` (see <doc:Configuration>).
+
+Notes worth knowing:
+
+- Host installs persist. `brew install gnupg` leaves gnupg on your Mac after the run — that's by design (so repeat runs are fast), but it's a real side effect, unlike the throwaway container installs.
+- A `brew install` failure is **non-fatal**: it's reported and the run continues so container cells still execute. A container `apt-get` failure fails that cell (the install runs under `set -euo pipefail` before the build).
+- Package names differ across managers (brew `gnupg` vs apt `gnupg` happen to match, but brew `libsodium` ≈ apt `libsodium-dev`), which is why the two lists are separate rather than one shared list.
+- Names are validated to ASCII letters/digits and `. _ + -` (no leading `-`) before they're spliced into the `apt`/`brew` invocations.
+
 ## Concurrency and timeouts
 
 ```bash

@@ -29,7 +29,8 @@ public struct AppleRunner: Sendable {
         case .macosSPM:
             arguments = AppleArgvBuilders.macosSPM(
                 toolchain: context.options.toolchainForVersion[pair.swiftVersion],
-                runTests: context.options.runTests
+                runTests: context.options.runTests,
+                noParallel: context.options.testNoParallel
             )
         case .macosXcodebuild, .ios, .tvos, .watchos, .visionos:
             guard let argv = AppleArgvBuilders.xcodebuild(
@@ -37,7 +38,8 @@ public struct AppleRunner: Sendable {
                 scheme: context.scheme,
                 derivedDataPath: context.cache.derivedDataDir(for: pair),
                 clonedPackagesPath: context.cache.clonedPackagesDir,
-                runTests: context.options.runTests
+                runTests: context.options.runTests,
+                noParallel: context.options.testNoParallel
             ) else {
                 return CellOutcome(
                     state: .fail,

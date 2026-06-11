@@ -9,12 +9,19 @@ public enum AppleArgvBuilders {
     /// `xcrun [--toolchain <id>] swift <action> --arch arm64`. Matches SPI's actual
     /// SPM Build Command panel; `<action>` is `build` by default, `test` when
     /// `runTests` is set.
-    public static func macosSPM(toolchain: String?, runTests: Bool = false) -> [String] {
+    public static func macosSPM(
+        toolchain: String?,
+        runTests: Bool = false,
+        noParallel: Bool = false
+    ) -> [String] {
         var args = ["xcrun"]
         if let toolchain {
             args.append(contentsOf: ["--toolchain", toolchain])
         }
         args.append(contentsOf: ["swift", runTests ? "test" : "build", "--arch", "arm64"])
+        if runTests, noParallel {
+            args.append("--no-parallel")
+        }
         return args
     }
 
@@ -28,12 +35,13 @@ public enum AppleArgvBuilders {
         scheme: String,
         derivedDataPath: URL,
         clonedPackagesPath: URL,
-        runTests: Bool = false
+        runTests: Bool = false,
+        noParallel: Bool = false
     ) -> [String]? {
         guard let destination = pair.platform.xcodebuildDestination(runningTests: runTests) else {
             return nil
         }
-        return [
+        var argv = [
             "xcrun", "xcodebuild",
             "-IDEClonedSourcePackagesDirPathOverride=\(clonedPackagesPath.path)",
             "-skipMacroValidation",
@@ -43,5 +51,9 @@ public enum AppleArgvBuilders {
             "-scheme", scheme,
             "-destination", destination,
         ]
+        if runTests, noParallel {
+            argv.append(contentsOf: ["-parallel-testing-enabled", "NO"])
+        }
+        return argv
     }
 }

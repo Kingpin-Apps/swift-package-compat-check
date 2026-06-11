@@ -62,7 +62,9 @@ public struct CrossSDKRunner: Sendable {
                 cellLabel: cellLabel,
                 runTests: context.options.runTests,
                 runtime: runtime,
-                useRosetta: context.options.useRosetta == true
+                useRosetta: context.options.useRosetta == true,
+                installPackages: context.options.installContainer,
+                noParallel: context.options.testNoParallel
             )
         case .wasm:
             arguments = CrossSDKArgvBuilders.wasm(
@@ -76,7 +78,9 @@ public struct CrossSDKRunner: Sendable {
                 cellLabel: cellLabel,
                 runTests: context.options.runTests,
                 runtime: runtime,
-                useRosetta: context.options.useRosetta == true
+                useRosetta: context.options.useRosetta == true,
+                installPackages: context.options.installContainer,
+                noParallel: context.options.testNoParallel
             )
         default:
             return CellOutcome(state: .pending)

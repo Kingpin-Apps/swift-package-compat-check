@@ -147,6 +147,32 @@ struct SPCCConfigFieldTests {
         #expect(bogus.containerRuntime == nil)
     }
 
+    @Test("Decodes test_no_parallel boolean")
+    func testNoParallelKey() async throws {
+        let on = try await SPCCConfig.load(from: Self.writeTOML("test_no_parallel = true"))
+        #expect(on.testNoParallel == true)
+        let absent = try await SPCCConfig.load(from: Self.writeTOML("scheme = \"X\""))
+        #expect(absent.testNoParallel == nil)
+    }
+
+    @Test("Decodes install_host and install_container string arrays")
+    func installLists() async throws {
+        let url = try Self.writeTOML("""
+            install_host = ["gnupg", "libsodium"]
+            install_container = ["libgcrypt20-dev", "jq"]
+            """)
+        let config = try await SPCCConfig.load(from: url)
+        #expect(config.installHost == ["gnupg", "libsodium"])
+        #expect(config.installContainer == ["libgcrypt20-dev", "jq"])
+    }
+
+    @Test("Missing install lists stay nil")
+    func installListsAbsent() async throws {
+        let config = try await SPCCConfig.load(from: Self.writeTOML("scheme = \"X\""))
+        #expect(config.installHost == nil)
+        #expect(config.installContainer == nil)
+    }
+
     static func writeTOML(_ contents: String) throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("spcc-config-\(UUID().uuidString).toml")

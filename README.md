@@ -59,6 +59,16 @@ spcc run --path ~/Projects/swift-nacl
 # Run `swift test` per cell instead of `swift build`
 spcc run --test -p macos-spm,linux -s 6.3
 
+# Install extra system packages the tests need (only applied with --test).
+# Host packages go on the Mac via brew (Apple cells); container packages go
+# inside each Linux/Android/Wasm container via apt.
+spcc run --test --install-host gnupg --install-container "gnupg,libgcrypt20-dev" \
+  -p macos-spm,linux -s 6.3
+
+# Run each cell's tests serially for suites that share global state (keyrings,
+# ports, temp files). Distinct from --max-parallel, which bounds cell concurrency.
+spcc run --test --test-no-parallel -p macos-spm,linux -s 6.3
+
 # Load default flags from a config file (--config wins over $SPCC_CONFIG)
 spcc run --config ./.spi-compat.toml
 SPCC_CONFIG=~/.config/spcc.toml spcc run
@@ -156,6 +166,8 @@ Override the cache root with `SPI_COMPAT_CACHE=/custom/path spcc run`.
 - **Scheme auto-detection** via `swift package dump-package` — skips system C targets like `Clibsodium` that alphabetically win against the real Swift library product.
 - **Per-Swift-version overrides** — `--xcode-6.X`, `--toolchain-6.X`, `--linux-image-6.X`, `--android-image-6.X`, `--wasm-image-6.X`, `--wasm-sdk-url-6.X`.
 - **Bounded concurrent fan-out** — `--max-parallel N` runs cells in parallel within each Swift version. Defaults to `activeProcessorCount / 2`.
+- **Test-dependency installs** — `--install-host` (brew, on the Mac for Apple cells) and `--install-container` (apt, inside each Linux/Android/Wasm container) pull in system packages a package's tests need — e.g. `gpg` for swift-gnupg. Applied only with `--test`. Host installs run once and **persist** on your machine; container installs are ephemeral. Both accept a comma-separated list and are validated against shell injection.
+- **Serial test execution** — `--test-no-parallel` runs each cell's tests serially (`swift test --no-parallel` / `xcodebuild test -parallel-testing-enabled NO`) for suites that share global state. Orthogonal to `--max-parallel`, which bounds how many cells run at once.
 - **Timeout safety net** — `--timeout SECONDS` kills hung Docker containers by label.
 - **Qemu IPC retry** — the cross-SDK resolver detects transient "failed parsing the Swift compiler output" errors under qemu emulation and retries the build before falling back. Critical for Android/Wasm cells against large packages on Apple Silicon.
 - **Multi-arch bundle extraction** — when an Android SDK bundle ships multiple triples (the finagolfin/swift-android-sdk case), `spcc` extracts the specific triple matching SPI's intent rather than building for every architecture in the bundle.

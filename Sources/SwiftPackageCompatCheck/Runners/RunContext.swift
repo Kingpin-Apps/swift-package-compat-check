@@ -21,6 +21,14 @@ public struct RunOptions: Sendable {
     /// (android, wasm) pass `swift test --swift-sdk` through, which compiles
     /// the tests but typically can't execute them without a target device.
     public var runTests: Bool
+    /// When `true` (and `runTests` is set), test runs go serial:
+    /// `swift test --no-parallel` for SPM/Linux/cross-SDK cells and
+    /// `xcodebuild test -parallel-testing-enabled NO` for xcodebuild cells.
+    /// Distinct from `--max-parallel`, which bounds how many *cells* run at once;
+    /// this bounds parallelism *within* a single cell's test process — the knob
+    /// you want for suites that share global state (keyrings, ports, temp files).
+    /// No effect in build mode.
+    public var testNoParallel: Bool
     /// Host runtime backing Linux / Android / Wasm cells. Defaults to `.docker`
     /// (status-quo behaviour). `.container` routes through apple/container.
     public var containerRuntime: ContainerRuntime
@@ -29,6 +37,12 @@ public struct RunOptions: Sendable {
     /// meaningful when `containerRuntime == .container`. Phase 1 always
     /// resolves to nil — Phase 2 measures whether enabling it is a net win.
     public var useRosetta: Bool?
+    /// Extra system packages to `apt-get install` inside each Linux / Android /
+    /// Wasm container before its build/test body runs. Populated only when
+    /// `--test` is active (see `RunCommand`); empty otherwise. Host (Apple) cells
+    /// are provisioned separately via `HostInstaller` since they share one
+    /// machine rather than a fresh per-cell container.
+    public var installContainer: [String]
 
     public init(
         xcodeForVersion: [SwiftVersion: URL] = [:],
@@ -41,8 +55,10 @@ public struct RunOptions: Sendable {
         verbose: Bool = false,
         timeoutSeconds: Double? = nil,
         runTests: Bool = false,
+        testNoParallel: Bool = false,
         containerRuntime: ContainerRuntime = .docker,
-        useRosetta: Bool? = nil
+        useRosetta: Bool? = nil,
+        installContainer: [String] = []
     ) {
         self.xcodeForVersion = xcodeForVersion
         self.toolchainForVersion = toolchainForVersion
@@ -54,8 +70,10 @@ public struct RunOptions: Sendable {
         self.verbose = verbose
         self.timeoutSeconds = timeoutSeconds
         self.runTests = runTests
+        self.testNoParallel = testNoParallel
         self.containerRuntime = containerRuntime
         self.useRosetta = useRosetta
+        self.installContainer = installContainer
     }
 
     /// `DEVELOPER_DIR=<xcode>/Contents/Developer` for the given Swift version,

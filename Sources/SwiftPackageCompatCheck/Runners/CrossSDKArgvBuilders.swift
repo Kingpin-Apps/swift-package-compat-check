@@ -33,7 +33,9 @@ public enum CrossSDKArgvBuilders {
         cellLabel: String? = nil,
         runTests: Bool = false,
         runtime: ContainerRuntime = .docker,
-        useRosetta: Bool = false
+        useRosetta: Bool = false,
+        installPackages: [String] = [],
+        noParallel: Bool = false
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -48,7 +50,9 @@ public enum CrossSDKArgvBuilders {
             cellLabel: cellLabel,
             runTests: runTests,
             runtime: runtime,
-            useRosetta: useRosetta
+            useRosetta: useRosetta,
+            installPackages: installPackages,
+            noParallel: noParallel
         )
     }
 
@@ -62,7 +66,9 @@ public enum CrossSDKArgvBuilders {
         cellLabel: String? = nil,
         runTests: Bool = false,
         runtime: ContainerRuntime = .docker,
-        useRosetta: Bool = false
+        useRosetta: Bool = false,
+        installPackages: [String] = [],
+        noParallel: Bool = false
     ) -> [String] {
         crossSDK(
             packagePath: packagePath,
@@ -77,7 +83,9 @@ public enum CrossSDKArgvBuilders {
             cellLabel: cellLabel,
             runTests: runTests,
             runtime: runtime,
-            useRosetta: useRosetta
+            useRosetta: useRosetta,
+            installPackages: installPackages,
+            noParallel: noParallel
         )
     }
 
@@ -94,7 +102,9 @@ public enum CrossSDKArgvBuilders {
         cellLabel: String? = nil,
         runTests: Bool = false,
         runtime: ContainerRuntime = .docker,
-        useRosetta: Bool = false
+        useRosetta: Bool = false,
+        installPackages: [String] = [],
+        noParallel: Bool = false
     ) -> [String] {
         let volume = volumeName(
             packageBasename: packageBasename,
@@ -117,12 +127,14 @@ public enum CrossSDKArgvBuilders {
             "-e", "SDK_BUILD_ARG=\(sdkBuildArg)",
             "-e", "SDK_FALLBACK_URL=\(sdkFallbackURL)",
             "-e", "SDK_ACTION=\(runTests ? "test" : "build")",
+            "-e", "SDK_TEST_ARGS=\((runTests && noParallel) ? "--no-parallel" : "")",
         ])
         if let label = cellLabel {
             argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
         }
         argv.append(image)
-        argv.append(contentsOf: ["bash", "-c", resolverScript])
+        let install = ContainerInstall.aptPreamble(packages: installPackages)
+        argv.append(contentsOf: ["bash", "-c", install + resolverScript])
         return argv
     }
 
@@ -157,7 +169,7 @@ public enum CrossSDKArgvBuilders {
           set +e
           (
             set -o pipefail
-            swift "${SDK_ACTION:-build}" --swift-sdk "$sdk" --scratch-path /build 2>&1 | tee "$tmplog"
+            swift "${SDK_ACTION:-build}" ${SDK_TEST_ARGS:-} --swift-sdk "$sdk" --scratch-path /build 2>&1 | tee "$tmplog"
           )
           local rc=$?
           set -e

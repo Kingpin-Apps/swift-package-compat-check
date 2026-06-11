@@ -61,7 +61,9 @@ public struct LinuxRunner: Sendable {
             cellLabel: cellLabel,
             runTests: context.options.runTests,
             runtime: runtime,
-            useRosetta: context.options.useRosetta == true
+            useRosetta: context.options.useRosetta == true,
+            installPackages: context.options.installContainer,
+            noParallel: context.options.testNoParallel
         )
 
         let logPath = context.cache.logPath(for: pair)

@@ -130,6 +130,24 @@ struct RunCommand: AsyncParsableCommand {
     )
     var runTests: Bool = false
 
+    @Flag(
+        name: .customLong("test-no-parallel"),
+        help: "When running tests (--test), run them serially: `swift test --no-parallel` / `xcodebuild test -parallel-testing-enabled NO`. For suites that share global state. Distinct from --max-parallel (which bounds cell concurrency). No effect without --test."
+    )
+    var testNoParallel: Bool = false
+
+    @Option(
+        name: .customLong("install-host"),
+        help: "Comma-separated system packages to `brew install` on the host Mac before Apple (macos/ios/…) test cells. Persists on your machine. Only applied with --test."
+    )
+    var installHostRaw: String?
+
+    @Option(
+        name: .customLong("install-container"),
+        help: "Comma-separated system packages to `apt-get install` inside each Linux/Android/Wasm container before its test cell. Ephemeral. Only applied with --test."
+    )
+    var installContainerRaw: String?
+
     @Flag(name: .customLong("no-live"), help: "Disable the live-updating matrix; stream one line per cell + final matrix instead.")
     var noLive: Bool = false
 
@@ -153,6 +171,23 @@ struct RunCommand: AsyncParsableCommand {
         let path = pathOption ?? pathArgument
         let swiftVersions = try parseSwiftVersions(swiftRaw, config: config)
         let platforms = try parsePlatforms(platformsRaw, config: config)
+
+        let effectiveRunTests = runTests || (config?.test ?? false)
+        // Install lists only take effect under --test (see the AskUserQuestion
+        // decision); parse-and-validate always so a bad package name is caught
+        // even when ignored, then zero them out when not testing.
+        let installHostPackages = try parseInstallList(installHostRaw, configValue: config?.installHost)
+        let installContainerPackages = try parseInstallList(installContainerRaw, configValue: config?.installContainer)
+        let wantTestNoParallel = testNoParallel || (config?.testNoParallel ?? false)
+        let testOnlyOptionRequested = !installHostPackages.isEmpty
+            || !installContainerPackages.isEmpty
+            || wantTestNoParallel
+        if !effectiveRunTests, !quiet, testOnlyOptionRequested {
+            print("Note: --install-host/--install-container/--test-no-parallel only apply with --test; ignoring for this build-only run.\n")
+        }
+        let activeHostPackages = effectiveRunTests ? installHostPackages : []
+        let activeContainerPackages = effectiveRunTests ? installContainerPackages : []
+        let activeTestNoParallel = effectiveRunTests && wantTestNoParallel
 
         let detectedScheme: String
         if let scheme {
@@ -196,10 +231,12 @@ struct RunCommand: AsyncParsableCommand {
             pullAlways: pullAlways || (config?.pullAlways ?? false),
             verbose: verbose || (config?.verbose ?? false),
             timeoutSeconds: timeoutSeconds ?? config?.timeoutSeconds,
-            runTests: runTests || (config?.test ?? false),
+            runTests: effectiveRunTests,
+            testNoParallel: activeTestNoParallel,
             containerRuntime: try Self.resolveContainerRuntime(
                 cli: containerRuntimeRaw, config: config?.containerRuntime
-            )
+            ),
+            installContainer: activeContainerPackages
         )
 
         let effectiveNoLive = noLive || (config?.noLive ?? false)
@@ -227,6 +264,18 @@ struct RunCommand: AsyncParsableCommand {
             print("Logs:      \(cache.runLogDir.path)")
             print("Parallel:  \(parallelism) cell\(parallelism == 1 ? "" : "s") per Swift version")
             print("")
+        }
+
+        // Host packages install once up front (the Mac is shared across every
+        // Apple cell). Skip entirely when no Apple platform is in the selection
+        // so a Linux-only `--install-host` run doesn't touch the machine. A brew
+        // failure is non-fatal — container cells still run.
+        let hasApplePlatform = platforms.contains { AppleRunner.supportedPlatforms.contains($0) }
+        if !activeHostPackages.isEmpty, hasApplePlatform {
+            let installed = await HostInstaller().brewInstall(activeHostPackages, quiet: quiet)
+            if !installed, !quiet {
+                print("⚠️  Host install failed; Apple test cells may fail if they need these packages. Continuing.\n")
+            }
         }
 
         let context = RunContext(
@@ -498,6 +547,35 @@ struct RunCommand: AsyncParsableCommand {
             return configPlatforms
         }
         return Platform.allCases
+    }
+
+    /// Characters allowed in a system package name. Deliberately strict — these
+    /// strings are spliced into a `bash -c` body (apt) and a `brew install` argv,
+    /// so anything outside this set is rejected rather than escaped.
+    private static let installNameAllowed = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+    )
+
+    /// Parse a comma-separated package list (CLI wins; config is the fallback),
+    /// validating each name. Returns `[]` when neither source provides one.
+    private func parseInstallList(_ raw: String?, configValue: [String]?) throws -> [String] {
+        let source: [String]
+        if let raw, !raw.isEmpty {
+            source = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        } else {
+            source = configValue ?? []
+        }
+        let packages = source.filter { !$0.isEmpty }
+        for pkg in packages {
+            guard !pkg.hasPrefix("-"),
+                  pkg.unicodeScalars.allSatisfy({ Self.installNameAllowed.contains($0) })
+            else {
+                throw ValidationError(
+                    "Invalid package name '\(pkg)'. Allowed: ASCII letters, digits, and . _ + - (no leading '-')."
+                )
+            }
+        }
+        return packages
     }
 
     /// Merge per-Swift-version maps: CLI value wins; config fills in missing keys.

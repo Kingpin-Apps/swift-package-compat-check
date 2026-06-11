@@ -42,7 +42,9 @@ public enum LinuxArgvBuilders {
         cellLabel: String? = nil,
         runTests: Bool = false,
         runtime: ContainerRuntime = .docker,
-        useRosetta: Bool = false
+        useRosetta: Bool = false,
+        installPackages: [String] = [],
+        noParallel: Bool = false
     ) -> [String] {
         let volume = volumeName(packageBasename: packageBasename, swiftVersion: swiftVersion)
         var argv: [String] = runtime.runArgvHead(
@@ -63,11 +65,13 @@ public enum LinuxArgvBuilders {
         }
         argv.append(image)
         let action = runTests ? "test" : "build"
+        let parallelFlag = (runTests && noParallel) ? " --no-parallel" : ""
+        let install = ContainerInstall.aptPreamble(packages: installPackages)
         argv.append(contentsOf: [
-            "bash", "-c", """
+            "bash", "-c", install + """
                 set -euo pipefail
                 swift --version
-                swift \(action) --triple x86_64-unknown-linux-gnu --scratch-path \(scratchMountPath)
+                swift \(action) --triple x86_64-unknown-linux-gnu --scratch-path \(scratchMountPath)\(parallelFlag)
                 """,
         ])
         return argv

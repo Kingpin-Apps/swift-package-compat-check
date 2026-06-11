@@ -44,9 +44,12 @@ public struct SPCCConfig: Sendable {
     public var timeoutSeconds: Double?
     public var pullAlways: Bool?
     public var test: Bool?
+    public var testNoParallel: Bool?
     public var noLive: Bool?
     public var verbose: Bool?
     public var containerRuntime: ContainerRuntime?
+    public var installHost: [String]?
+    public var installContainer: [String]?
     public var xcode: [SwiftVersion: String]
     public var toolchain: [SwiftVersion: String]
     public var linuxImage: [SwiftVersion: String]
@@ -66,9 +69,12 @@ public struct SPCCConfig: Sendable {
         timeoutSeconds: Double? = nil,
         pullAlways: Bool? = nil,
         test: Bool? = nil,
+        testNoParallel: Bool? = nil,
         noLive: Bool? = nil,
         verbose: Bool? = nil,
         containerRuntime: ContainerRuntime? = nil,
+        installHost: [String]? = nil,
+        installContainer: [String]? = nil,
         xcode: [SwiftVersion: String] = [:],
         toolchain: [SwiftVersion: String] = [:],
         linuxImage: [SwiftVersion: String] = [:],
@@ -83,9 +89,12 @@ public struct SPCCConfig: Sendable {
         self.timeoutSeconds = timeoutSeconds
         self.pullAlways = pullAlways
         self.test = test
+        self.testNoParallel = testNoParallel
         self.noLive = noLive
         self.verbose = verbose
         self.containerRuntime = containerRuntime
+        self.installHost = installHost
+        self.installContainer = installContainer
         self.xcode = xcode
         self.toolchain = toolchain
         self.linuxImage = linuxImage
@@ -167,10 +176,19 @@ public struct SPCCConfig: Sendable {
         }
         self.pullAlways = reader.bool(forKey: ConfigKey("pull_always"))
         self.test = reader.bool(forKey: ConfigKey("test"))
+        self.testNoParallel = reader.bool(forKey: ConfigKey("test_no_parallel"))
         self.noLive = reader.bool(forKey: ConfigKey("no_live"))
         self.verbose = reader.bool(forKey: ConfigKey("verbose"))
         self.containerRuntime = reader.string(forKey: ConfigKey("container_runtime"))
             .flatMap(ContainerRuntime.init(rawValue:))
+
+        func readStringList(_ key: String) -> [String]? {
+            let raw = reader.stringArray(forKey: ConfigKey(key))
+            guard let raw, !raw.isEmpty else { return nil }
+            return raw
+        }
+        self.installHost = readStringList("install_host")
+        self.installContainer = readStringList("install_container")
 
         func readPerVersion(_ section: String) -> [SwiftVersion: String] {
             var result: [SwiftVersion: String] = [:]

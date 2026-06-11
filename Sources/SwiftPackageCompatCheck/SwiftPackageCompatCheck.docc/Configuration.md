@@ -49,8 +49,16 @@ max_parallel = 4
 timeout      = 600     # seconds
 pull_always  = true
 test         = true    # run `swift test` instead of `swift build`
+test_no_parallel = true # run each cell's tests serially (only with test = true)
 no_live      = false
 verbose      = false
+
+# System packages the tests need (only applied when `test` / --test is on).
+# Host packages install on the Mac via brew for Apple cells and persist;
+# container packages install via apt inside each Linux/Android/Wasm container
+# and are ephemeral.
+install_host      = ["gnupg"]
+install_container = ["gnupg", "libgcrypt20-dev"]
 
 # Per-Swift-version Xcode overrides
 [xcode]
@@ -90,8 +98,11 @@ verbose      = false
 | `timeout` (`--timeout`) | CLI wins | Use config's value | No timeout |
 | `pull_always` (`--pull-always`) | CLI `||` config | Use config's value | `false` |
 | `test` (`-t` / `--test`) | CLI `||` config | Use config's value | `false` |
+| `test_no_parallel` (`--test-no-parallel`) | CLI `||` config | Use config's value | `false` (only with `--test`) |
 | `no_live` (`--no-live`) | CLI `||` config | Use config's value | `false` (auto-pick by TTY) |
 | `verbose` (`-v`) | CLI `||` config | Use config's value | `false` |
+| `install_host` (`--install-host`) | CLI wins | Use config's list | Empty (only with `--test`) |
+| `install_container` (`--install-container`) | CLI wins | Use config's list | Empty (only with `--test`) |
 | `[xcode]`, `[toolchain]`, `[*_image]`, `[wasm_sdk_url]` | CLI value per-key wins | Config's value for absent CLI keys | Empty map |
 
 Booleans use **logical OR** because every CLI flag is opt-in. If you set `test = true` in your config you can't disable it with a flag — drop the line from your config or unset `$SPCC_CONFIG`.
