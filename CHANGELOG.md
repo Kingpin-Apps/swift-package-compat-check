@@ -1,3 +1,13 @@
+## 0.5.0 (2026-06-11)
+
+### Feat
+
+- --install-host/--install-container and --test-no-parallel for test runs
+
+### Fix
+
+- show folder name instead of '.' in Package line
+
 ## 0.4.0 (2026-06-07)
 
 ### Feat
