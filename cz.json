@@ -3,9 +3,8 @@
     "name": "cz_conventional_commits",
     "tag_format": "$version",
     "version_scheme": "semver",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "update_changelog_on_bump": true,
-    "major_version_zero": true,
     "pre_bump_hooks": [
       "swift package --allow-writing-to-package-directory version-file --create $CZ_PRE_NEW_VERSION"
     ]
