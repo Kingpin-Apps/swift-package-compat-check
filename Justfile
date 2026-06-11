@@ -154,6 +154,43 @@ publish: notarize
         "$TARBALL"
     echo "✓ Released $VERSION"
 
+# Bump the Homebrew tap formula (Kingpin-Apps/homebrew-tap) to a released version.
+# Patches only the url + sha256 lines, preserving the rest of the formula. Computes
+# sha256 from `tarball` if given, otherwise downloads the published release asset.
+# Uses your gh auth locally, or $GH_TOKEN in CI (needs write access to the tap repo).
+# Run manually to recover a release: `just tap-bump 0.5.0`
+tap-bump version tarball="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="{{ version }}"
+    TARBALL="{{ tarball }}"
+    TAP="Kingpin-Apps/homebrew-tap"
+    FORMULA="Formula/spcc.rb"
+    URL="https://github.com/Kingpin-Apps/swift-package-compat-check/releases/download/${VERSION}/spcc-${VERSION}-macos-universal.tar.gz"
+    WORK=$(mktemp -d)
+    trap 'rm -rf "$WORK"' EXIT
+    if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
+        SHA256=$(shasum -a 256 "$TARBALL" | awk '{print $1}')
+    else
+        echo "Downloading release asset to compute sha256..."
+        curl --fail --location --silent --show-error -o "$WORK/asset.tar.gz" "$URL"
+        SHA256=$(shasum -a 256 "$WORK/asset.tar.gz" | awk '{print $1}')
+    fi
+    gh api "repos/${TAP}/contents/${FORMULA}" > "$WORK/resp.json"
+    jq -r '.content' "$WORK/resp.json" | base64 --decode > "$WORK/formula.rb"
+    FILE_SHA=$(jq -r '.sha' "$WORK/resp.json")
+    sed -i.bak -E "s|^( *url )\".*\"|\\1\"${URL}\"|" "$WORK/formula.rb"
+    sed -i.bak -E "s|^( *sha256 )\".*\"|\\1\"${SHA256}\"|" "$WORK/formula.rb"
+    rm -f "$WORK/formula.rb.bak"
+    echo "→ formula now:"
+    grep -E '^[[:space:]]*(url|sha256) ' "$WORK/formula.rb"
+    gh api "repos/${TAP}/contents/${FORMULA}" -X PUT \
+        -f message="spcc ${VERSION}" \
+        -f content="$(base64 -i "$WORK/formula.rb" | tr -d '\n')" \
+        -f sha="$FILE_SHA" \
+        -f branch="main"
+    echo "✓ Bumped ${TAP} → ${VERSION}"
+
 # Build universal binary, codesign, and install to $INSTALL_DIR
 install: sign
     #!/usr/bin/env bash
