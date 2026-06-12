@@ -10,14 +10,20 @@ Install `spcc`, run your first matrix, read the output.
 
 | Requirement | Version | Why |
 |-------------|---------|-----|
-| macOS       | 15+     | Required by the dependency stack; matches the rest of the Kingpin Swift packages. |
-| Swift       | 6.3+    | `spcc` is built with `swift-tools-version: 6.3` and Swift 6 strict concurrency. |
-| Xcode       | 26.4+   | For the `xcodebuild` cells (`ios`, `tvos`, `watchos`, `visionos`, `macos-xcodebuild`). |
-| Docker      | Any modern release | For `linux`, `android`, `wasm` cells. Optional if you only care about Apple platforms. |
+| macOS       | 15+     | `spcc` is a macOS-only tool. |
+| Xcode       | 26.4+   | For the Apple-platform cells (`macos-spm`, `macos-xcodebuild`, `ios`, `tvos`, `watchos`, `visionos`). |
+| Container runtime | Docker (any modern release) or [apple/container](https://github.com/apple/container) 0.12+ | For `linux`, `android`, `wasm` cells. Optional if you only care about Apple platforms. Docker is the default; apple/container is experimental opt-in via `--container-runtime container`. |
+| Swift       | 6.2+    | Only needed to build `spcc` from source. |
 
 ## Install
 
-Build from source with Swift Package Manager:
+Install with Homebrew:
+
+```bash
+brew install kingpin-apps/tap/spcc
+```
+
+Or build from source with Swift Package Manager:
 
 ```bash
 git clone https://github.com/Kingpin-Apps/swift-package-compat-check.git
@@ -27,8 +33,6 @@ cp .build/release/spcc ~/.local/bin/spcc
 ```
 
 Make sure `~/.local/bin` is on your `$PATH` — or copy `spcc` somewhere else that is.
-
-> **Heads up** — a Homebrew tap is planned. This section will be updated with the `brew install …` invocation once it's live.
 
 ### Confirm the install
 

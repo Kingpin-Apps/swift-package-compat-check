@@ -7,7 +7,7 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 
 `spcc` reproduces the same `(platform × Swift version)` recipe SPI runs on its own builders — same Docker images, same `xcodebuild` destinations, same `swift build --swift-sdk` invocations — and prints a `✓`/`✗` matrix you can diff against the SPI badge.
 
-![A full matrix run against the bundled HelloWorld fixture — all 34 cells green.](Sources/SwiftPackageCompatCheck/SwiftPackageCompatCheck.docc/Resources/hello-world-matrix.png)
+![A full 34-cell matrix run — every cell green.](Sources/SwiftPackageCompatCheck/SwiftPackageCompatCheck.docc/Resources/hello-world-matrix.png)
 
 ---
 
@@ -15,10 +15,10 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 
 | Requirement | Version | Why |
 |-------------|---------|-----|
-| macOS       | 15+     | Required by `swift-configuration-toml`; matches the rest of the Kingpin Swift stack. |
-| Swift       | 6.2+    | `swift-tools-version: 6.2` and Swift 6 strict concurrency. |
-| Xcode       | 26.4+   | For `xcodebuild` cells. Multiple Xcodes can be selected per Swift version via `--xcode-6.X`. |
+| macOS       | 15+     | `spcc` is a macOS-only tool. |
+| Xcode       | 26.4+   | For the Apple-platform cells (`macos-spm`, `macos-xcodebuild`, `ios`, `tvos`, `watchos`, `visionos`). Multiple Xcodes can be selected per Swift version via `--xcode-6.X`. |
 | Container runtime | Docker (any modern release) or [apple/container](https://github.com/apple/container) 0.12+ | For `linux`, `android`, `wasm` cells. Apple cells don't need either. Default is `docker`; pass `--container-runtime container` to opt into apple/container (experimental — see [Container runtime](#container-runtime) below). |
+| Swift       | 6.2+    | Only needed to build `spcc` from source. |
 
 ---
 
@@ -72,9 +72,6 @@ spcc run --test --test-no-parallel -p macos-spm,linux -s 6.3
 # Load default flags from a config file (--config wins over $SPCC_CONFIG)
 spcc run --config ./.spi-compat.toml
 SPCC_CONFIG=~/.config/spcc.toml spcc run
-
-# Smoke-test spcc itself against the bundled HelloWorld fixture
-just hello
 ```
 
 When a cell fails, its log path is printed below the matrix so you can drill in:
@@ -121,7 +118,7 @@ For full documentation including all flags, caching behaviour, and troubleshooti
 
 ## Container runtime
 
-Linux / Android / Wasm cells dispatch through a host-side container runtime. The default is `docker`. As of v0.4 you can opt into [apple/container](https://github.com/apple/container) (Apple Silicon, `Virtualization.framework`) via:
+Linux / Android / Wasm cells dispatch through a host-side container runtime. The default is `docker`. You can opt into [apple/container](https://github.com/apple/container) (Apple Silicon, `Virtualization.framework`) via:
 
 ```bash
 # CLI flag
@@ -131,14 +128,12 @@ spcc run --container-runtime container
 container_runtime = "container"
 ```
 
-apple/container reuses the same SPI builder images and produces identical cell pass/fail in the bundled HelloWorld smoke test. Status against larger packages is still being validated (the swift-cardano-core parity gate) — until that lands, docker stays the default and apple/container is opt-in only. The qemu retry path in the cross-SDK resolver may become unnecessary under Rosetta translation; the resolver still runs it for now.
+apple/container support is **experimental**. It reuses the same SPI builder images and produces identical pass/fail results in `spcc`'s smoke tests, but it hasn't yet been validated against as wide a range of real-world packages as Docker — which is why Docker stays the default.
 
-Notable runtime differences:
+Things to know when using apple/container:
 
-- apple/container has no `--pull` on `run`. spcc handles pulls as an explicit `container image pull` pre-step, deduped across concurrent cells.
-- apple/container has no `list --filter label=`. The timeout watchdog sets a deterministic `--name spcc-cell-<RUN_TS>-<platform>-<sv>` at launch and kills by name.
-- apple/container caps per-container memory at **1 GB by default**, which OOM-kills any non-toy Swift build. spcc sets `-m 8G` for the container path (`ContainerRuntime.defaultContainerMemory`) so cells get a comparable allotment to what they'd see under Docker Desktop's VM. Docker imposes no equivalent cap, so the docker argv is unchanged.
-- The macOS 15 minimum stays unchanged. apple/container's macOS-26-only features (container-to-container networking) aren't used by spcc.
+- Image pulls happen as an explicit pre-step (apple/container has no `--pull` on `run`); concurrent cells share a single pull.
+- apple/container caps per-container memory at **1 GB by default**, which OOM-kills any non-toy Swift build. `spcc` raises this to 8 GB per cell so builds get a comparable allotment to Docker Desktop's VM.
 - Pair `--container-runtime container` with `--timeout` (e.g. `--timeout 1800`) when running long matrices unattended. Without a timeout, a stuck cell sits indefinitely rather than failing fast.
 
 ## Caches
@@ -168,21 +163,9 @@ Override the cache root with `SPI_COMPAT_CACHE=/custom/path spcc run`.
 - **Bounded concurrent fan-out** — `--max-parallel N` runs cells in parallel within each Swift version. Defaults to `activeProcessorCount / 2`.
 - **Test-dependency installs** — `--install-host` (brew, on the Mac for Apple cells) and `--install-container` (apt, inside each Linux/Android/Wasm container) pull in system packages a package's tests need — e.g. `gpg` for swift-gnupg. Applied only with `--test`. Host installs run once and **persist** on your machine; container installs are ephemeral. Both accept a comma-separated list and are validated against shell injection.
 - **Serial test execution** — `--test-no-parallel` runs each cell's tests serially (`swift test --no-parallel` / `xcodebuild test -parallel-testing-enabled NO`) for suites that share global state. Orthogonal to `--max-parallel`, which bounds how many cells run at once.
-- **Timeout safety net** — `--timeout SECONDS` kills hung Docker containers by label.
+- **Timeout safety net** — `--timeout SECONDS` kills hung containers so a stuck cell fails fast instead of blocking the run.
 - **Qemu IPC retry** — the cross-SDK resolver detects transient "failed parsing the Swift compiler output" errors under qemu emulation and retries the build before falling back. Critical for Android/Wasm cells against large packages on Apple Silicon.
 - **Multi-arch bundle extraction** — when an Android SDK bundle ships multiple triples (the finagolfin/swift-android-sdk case), `spcc` extracts the specific triple matching SPI's intent rather than building for every architecture in the bundle.
-
----
-
-## Comparison to `spi-compat-check.sh`
-
-This package supersedes the [`spi-compat-check.sh`](https://gist.github.com/...) bash script that previously served the same role internally at Kingpin Apps. Feature parity reached as of 2026-06-06; the bash script is retained as a sanity-check fallback only.
-
-Improvements over the bash original:
-- Qemu IPC retry + multi-arch bundle triple extraction (fixes hangs the bash script can also hit).
-- Per-cell timeout with Docker label-based container kill.
-- Live updating matrix.
-- Unit tests against every runner.
 
 ---
 
@@ -197,7 +180,7 @@ just release        # Release build for current host arch
 just bump           # Cut a release: `cz bump` then push --follow-tags
 ```
 
-See the DocC catalog for the architecture overview and how runners are layered.
+The [DocC catalog](Sources/SwiftPackageCompatCheck/SwiftPackageCompatCheck.docc/Documentation.md) doubles as the full user guide and the API documentation for the `SwiftPackageCompatCheck` library target.
 
 ---
 

@@ -4,7 +4,7 @@ Every flag, every output mode, every override.
 
 ## Overview
 
-`spcc run` is the default subcommand — bare `spcc` is equivalent to `spcc run`. It accepts the package path either positionally or via `--path`, plus a long list of flags for narrowing scope, overriding tools, controlling output, and configuring safety nets.
+`spcc run` is the default subcommand — bare `spcc` is equivalent to `spcc run`. It accepts the package path either positionally or via `--path`, plus a long list of flags for narrowing scope, overriding tools, controlling output, and configuring safety nets. This article is the narrative guide; a compact flag table lives in the `spcc` tool documentation's *spcc run* page.
 
 ## Specifying the package
 
@@ -79,6 +79,8 @@ spcc run --linux-image-6.3 my-registry.example/swift:6.3-jammy
 spcc run --android-image-6.2 registry.gitlab.com/.../spi-images@sha256:abc...
 spcc run --wasm-image-6.1 alternate-wasm-image:tag
 ```
+
+The Android and Wasm override flags exist for Swift 6.1–6.3 only — SPI doesn't run those platforms against Swift 6.0, so there's no cell to override.
 
 For wasm specifically, the cross-SDK resolver inside the container falls back to downloading and installing a swiftwasm artifact bundle when the image's bundled SDK doesn't match. The default fallback URLs are the upstream swiftwasm release builds; override per Swift version:
 
@@ -162,7 +164,19 @@ spcc run --timeout 600
 
 `--max-parallel` defaults to `activeProcessorCount / 2`. The fan-out axis is per-Swift-version: Swift versions run sequentially (so each version's Docker image is pulled and warmed once), but platforms within a version run concurrently up to the cap.
 
-`--timeout` is a hard wall-clock budget. For Docker-backed cells, on timeout `spcc` runs `docker kill --filter label=spcc-cell=<RUN_TS>-<platform>-<sv>` to actually release the container, then marks the cell `✗` with `timed out after Ns; container killed` written to the log. Apple cells (xcrun/xcodebuild) aren't covered — they rarely hang in practice, and tuist's `Command` doesn't expose the underlying `Process` for a clean kill.
+`--timeout` is a hard wall-clock budget. For container-backed cells, on timeout `spcc` actually kills the container — under Docker it discovers the container id via `docker ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `docker kill` on it; under apple/container it runs `container kill` against the deterministic container name set at launch. The cell is then marked `✗` with `timed out after Ns; container killed` written to the log. Apple cells (xcrun/xcodebuild) aren't covered — they rarely hang in practice, and tuist's `Command` doesn't expose the underlying `Process` for a clean kill.
+
+## Choosing the container runtime
+
+Linux / Android / Wasm cells dispatch through a host-side container runtime. The default is Docker; [apple/container](https://github.com/apple/container) (Apple Silicon, `Virtualization.framework`) is an experimental opt-in:
+
+```bash
+spcc run --container-runtime container
+```
+
+Or persist it in a config file with `container_runtime = "container"` (see <doc:Configuration>).
+
+apple/container reuses the same SPI builder images and produces identical pass/fail results in `spcc`'s smoke tests, but it hasn't been validated against as wide a range of real-world packages as Docker. Pulls happen as an explicit pre-step (deduped across concurrent cells), and `spcc` raises apple/container's 1 GB default memory cap to 8 GB per cell so non-trivial builds don't get OOM-killed. Pair it with `--timeout` when running long matrices unattended.
 
 ## Output modes
 

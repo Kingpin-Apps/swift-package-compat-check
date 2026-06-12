@@ -75,28 +75,29 @@ Cache root: /Users/me/.cache/spi-compat-check
            0B  swift-base58
          319M  swift-cardano-cips
 
-Docker volumes (spi-compat-*):
+[docker] volumes (spi-compat-*):
        1.2G  spi-compat-build-swift-nacl-6.3
        4.5G  spi-compat-build-swift-cardano-core-android-6.2
        ...
-
-Docker images (spi-images):
-       5.66GB  registry.gitlab.com/swiftpackageindex/spi-images:basic-6.0-latest
-       6.02GB  registry.gitlab.com/swiftpackageindex/spi-images:basic-6.1-latest
+[docker] images (spi-images):
+     5.66GB  registry.gitlab.com/swiftpackageindex/spi-images:basic-6.0-latest
+     6.02GB  registry.gitlab.com/swiftpackageindex/spi-images:basic-6.1-latest
        ...
 ```
 
-Sizes are pulled from `du -sh` (for filesystem paths) and `docker run alpine du -sh /data` (for Docker volumes). Image sizes come from `docker images --format "{{.Size}}"`.
+Volumes and images are reported per installed container runtime — a `[container]` section follows the `[docker]` one if you've used apple/container. Sizes are pulled from `du -sh` (for filesystem paths) and a throwaway `alpine du -sh /data` container (for volumes). Image sizes come from the runtime's own image listing.
 
 ## Cleaning up
 
 | Command | What it removes |
 |---------|----|
-| `spcc clean [path]` | One package's logs/derived-data/cloned-packages + its `spi-compat-build-<pkg>-*` Docker volumes. |
-| `spcc clean-all` | The entire cache root + every `spi-compat-*` Docker volume. |
-| `spcc clean-all --remove-images` | Above, plus the SPI builder Docker images. |
+| `spcc clean [path]` | One package's logs/derived-data/cloned-packages + its `spi-compat-build-<pkg>-*` volumes. |
+| `spcc clean-all` | The entire cache root + every `spi-compat-*` volume across all installed runtimes. |
+| `spcc clean-all --remove-images` | Above, plus the SPI builder images. |
 | `spcc images` | Lists cached SPI builder images. |
 | `spcc images --remove` | Removes cached SPI builder images (preserves the cache root). |
+
+Each command has a reference page in the `spcc` tool documentation (the `spcc` target's `spcc.docc` catalog).
 
 The SPI builder images are the heaviest single category — 10 images at 5-11 GB each can occupy 60+ GB. They're typically what you want to drop first when reclaiming disk, before touching per-package state.
 

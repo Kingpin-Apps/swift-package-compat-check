@@ -12,9 +12,8 @@ import SystemPackage
 /// 2. `$SPCC_CONFIG` environment variable (full path to the config file)
 /// 3. No config — every CLI flag uses its built-in default
 ///
-/// File format is picked by extension: `.toml`, `.yaml` / `.yml`, or `.json`.
-/// All three are parsed via `swift-configuration`'s `FileProvider`, matching the
-/// pattern in `swift-cardano-multitool`.
+/// File format is picked by extension: `.toml` is parsed as TOML; anything else
+/// is parsed as JSON. Both go through `swift-configuration`'s `FileProvider`.
 ///
 /// Example `.spi-compat.toml`:
 ///
