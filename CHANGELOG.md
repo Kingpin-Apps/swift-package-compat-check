@@ -1,3 +1,9 @@
+## 0.5.3 (2026-06-12)
+
+### Refactor
+
+- rename SPCC root command to SwiftPackageCompatCheck
+
 ## 0.5.2 (2026-06-11)
 
 ## 0.5.1 (2026-06-11)
