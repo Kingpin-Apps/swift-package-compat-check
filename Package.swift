@@ -8,7 +8,7 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
-        .executable(name: "spcc", targets: ["SwiftPackageCompatCheckApp"]),
+        .executable(name: "spcc", targets: ["spcc"]),
         .library(name: "SwiftPackageCompatCheck", targets: ["SwiftPackageCompatCheck"]),
     ],
     dependencies: [
@@ -43,7 +43,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "SwiftPackageCompatCheckApp",
+            name: "spcc",
             dependencies: ["SwiftPackageCompatCheck"]
         ),
         .testTarget(
