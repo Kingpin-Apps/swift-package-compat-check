@@ -32,7 +32,7 @@ The SPI badge is the source of truth for whether your package builds across the 
 
 ### Library API
 
-- ``SPCC``
+- ``SwiftPackageCompatCheck/SwiftPackageCompatCheck``
 - ``BuildPair``
 - ``Platform``
 - ``SwiftVersion``

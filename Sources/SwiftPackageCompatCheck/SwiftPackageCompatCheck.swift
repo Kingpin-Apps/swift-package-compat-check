@@ -1,6 +1,6 @@
 import ArgumentParser
 
-public struct SPCC: AsyncParsableCommand {
+public struct SwiftPackageCompatCheck: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "spcc",
         abstract: "Reproduce the Swift Package Index compatibility matrix locally.",

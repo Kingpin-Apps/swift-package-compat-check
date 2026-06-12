@@ -5,8 +5,8 @@ import Testing
 struct SmokeTests {
     @Test("Library configures the root command")
     func rootCommandConfigured() {
-        #expect(SPCC.configuration.commandName == "spcc")
-        #expect(SPCC.configuration.version == Version.number)
-        #expect(SPCC.configuration.subcommands.count == 5)
+        #expect(SwiftPackageCompatCheck.configuration.commandName == "spcc")
+        #expect(SwiftPackageCompatCheck.configuration.version == Version.number)
+        #expect(SwiftPackageCompatCheck.configuration.subcommands.count == 5)
     }
 }
