@@ -17,7 +17,7 @@ Run the [Swift Package Index](https://swiftpackageindex.com) build matrix agains
 |-------------|---------|-----|
 | macOS       | 15+     | `spcc` is a macOS-only tool. |
 | Xcode       | 26.4+   | For the Apple-platform cells (`macos-spm`, `macos-xcodebuild`, `ios`, `tvos`, `watchos`, `visionos`). Multiple Xcodes can be selected per Swift version via `--xcode-6.X`. |
-| Container runtime | Docker (any modern release) or [apple/container](https://github.com/apple/container) 0.12+ | For `linux`, `android`, `wasm` cells. Apple cells don't need either. Default is `docker`; pass `--container-runtime container` to opt into apple/container (experimental — see [Container runtime](#container-runtime) below). |
+| Container runtime | Docker (any modern release), [apple/container](https://github.com/apple/container) 0.12+, or Podman | For `linux`, `android`, `wasm` cells. Apple cells don't need any. Default is `docker`; select another with `--container-runtime container\|podman`, or omit to auto-detect (see [Container runtime](#container-runtime) below). |
 | Swift       | 6.2+    | Only needed to build `spcc` from source. |
 
 ---
@@ -118,11 +118,11 @@ For full documentation including all flags, caching behaviour, and troubleshooti
 
 ## Container runtime
 
-Linux / Android / Wasm cells dispatch through a host-side container runtime. The default is `docker`. You can opt into [apple/container](https://github.com/apple/container) (Apple Silicon, `Virtualization.framework`) via:
+Linux / Android / Wasm cells dispatch through a host-side container runtime — one of `docker`, `container` ([apple/container](https://github.com/apple/container), Apple Silicon, `Virtualization.framework`), or `podman`. Select one explicitly, or omit the flag to auto-detect whichever is running (priority: `container` → `docker` → `podman`):
 
 ```bash
 # CLI flag
-spcc run --container-runtime container
+spcc run --container-runtime container   # or docker, or podman
 
 # Or persist in .spi-compat.toml
 container_runtime = "container"
@@ -135,6 +135,12 @@ Things to know when using apple/container:
 - Image pulls happen as an explicit pre-step (apple/container has no `--pull` on `run`); concurrent cells share a single pull.
 - apple/container caps per-container memory at **1 GB by default**, which OOM-kills any non-toy Swift build. `spcc` raises this to 8 GB per cell so builds get a comparable allotment to Docker Desktop's VM.
 - Pair `--container-runtime container` with `--timeout` (e.g. `--timeout 1800`) when running long matrices unattended. Without a timeout, a stuck cell sits indefinitely rather than failing fast.
+
+Podman is a Docker-compatible alternative and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill, `volume`/`images` verbs). It's a good fit for **light packages and smoke checks**, but not for heavy real-world matrices — see the caveats below. Things to know:
+
+- **Memory / concurrency.** Podman runs all cells in a **single `podman machine` VM**, and `spcc` runs the matrix cells *concurrently*, so they share that one VM's RAM (unlike apple/container, which gives each cell its own VM). `spcc` sets no per-cell cap for Podman, so a matrix of N concurrent heavy cells will OOM unless the machine has roughly N × 6 GiB. Size it with `podman machine init/set -m <MiB>` (the 2 GiB default OOMs even one real build), or serialize with `--max-parallel 1`.
+- **No Rosetta in containers → slow amd64.** Even on the `applehv` provider with `rosetta=true`, Podman does **not** mount Rosetta into `podman run --platform linux/amd64` containers, so amd64 Swift compilation runs under qemu — measured **~5–6× slower than apple/container**. Heavy packages (e.g. a full Cardano-stack build) time out at 1800s under Podman where apple/container finishes in ~5 min. Always pair Podman with `--timeout` so a slow cell fails fast instead of grinding.
+- **Public-registry pulls.** If Podman inherits a `credsStore`/`credHelpers` from `~/.docker/config.json`, pulls of the *public* SPI registry can fail with a credential-helper error — bypass with an empty `REGISTRY_AUTH_FILE` (see the DocC Troubleshooting guide).
 
 ## Caches
 

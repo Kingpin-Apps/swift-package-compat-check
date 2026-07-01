@@ -57,7 +57,7 @@ Each of these exists once per Swift version — substitute `6.X` with a concrete
 |------|--------|
 | `--max-parallel <n>` | Max cells running concurrently within each Swift version (default: `activeProcessorCount / 2`). |
 | `--timeout <seconds>` | Per-cell wall-clock timeout; hung containers are killed. Default: no timeout. |
-| `--container-runtime <name>` | `docker` (default) or `container` (apple/container, experimental). |
+| `--container-runtime <name>` | `docker` (default), `container` (apple/container, experimental), or `podman`. Omit to auto-detect whichever is running (container → docker → podman). |
 | `--pull-always` | Pass `--pull=always` to the container runtime (default: `--pull=missing`). |
 
 ## Output

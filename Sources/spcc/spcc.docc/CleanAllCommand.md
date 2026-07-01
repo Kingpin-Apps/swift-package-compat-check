@@ -4,7 +4,7 @@ Remove all spi-compat cache volumes and logs globally.
 
 ## Overview
 
-`clean-all` wipes the entire cache root — every package's logs, derived data, and cloned packages — plus every `spi-compat-*` volume across **all installed container runtimes** (Docker and apple/container). The SPI builder images are kept unless you pass `--remove-images`.
+`clean-all` wipes the entire cache root — every package's logs, derived data, and cloned packages — plus every `spi-compat-*` volume across **all installed container runtimes** (Docker, apple/container, and Podman). The SPI builder images are kept unless you pass `--remove-images`.
 
 ```bash
 spcc clean-all [--remove-images]

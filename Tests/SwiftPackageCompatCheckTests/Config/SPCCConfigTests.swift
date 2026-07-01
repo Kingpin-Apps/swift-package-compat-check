@@ -140,9 +140,13 @@ struct SPCCConfigFieldTests {
             from: Self.writeTOML(#"container_runtime = "container""#)
         )
         #expect(container.containerRuntime == .container)
+        let podman = try await SPCCConfig.load(
+            from: Self.writeTOML(#"container_runtime = "podman""#)
+        )
+        #expect(podman.containerRuntime == .podman)
         // Unknown values silently become nil (CLI is the validation seam).
         let bogus = try await SPCCConfig.load(
-            from: Self.writeTOML(#"container_runtime = "podman""#)
+            from: Self.writeTOML(#"container_runtime = "nerdctl""#)
         )
         #expect(bogus.containerRuntime == nil)
     }

@@ -164,19 +164,21 @@ spcc run --timeout 600
 
 `--max-parallel` defaults to `activeProcessorCount / 2`. The fan-out axis is per-Swift-version: Swift versions run sequentially (so each version's Docker image is pulled and warmed once), but platforms within a version run concurrently up to the cap.
 
-`--timeout` is a hard wall-clock budget. For container-backed cells, on timeout `spcc` actually kills the container — under Docker it discovers the container id via `docker ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `docker kill` on it; under apple/container it runs `container kill` against the deterministic container name set at launch. The cell is then marked `✗` with `timed out after Ns; container killed` written to the log. Apple cells (xcrun/xcodebuild) aren't covered — they rarely hang in practice, and tuist's `Command` doesn't expose the underlying `Process` for a clean kill.
+`--timeout` is a hard wall-clock budget. For container-backed cells, on timeout `spcc` actually kills the container — under Docker or Podman it discovers the container id via `<runtime> ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `<runtime> kill` on it; under apple/container it runs `container kill` against the deterministic container name set at launch. The cell is then marked `✗` with `timed out after Ns; container killed` written to the log. Apple cells (xcrun/xcodebuild) aren't covered — they rarely hang in practice, and tuist's `Command` doesn't expose the underlying `Process` for a clean kill.
 
 ## Choosing the container runtime
 
-Linux / Android / Wasm cells dispatch through a host-side container runtime. The default is Docker; [apple/container](https://github.com/apple/container) (Apple Silicon, `Virtualization.framework`) is an experimental opt-in:
+Linux / Android / Wasm cells dispatch through a host-side container runtime — `docker`, `container` ([apple/container](https://github.com/apple/container), Apple Silicon, `Virtualization.framework`, experimental), or `podman`. Select one, or omit the flag to auto-detect whichever is running (priority: `container` → `docker` → `podman`):
 
 ```bash
-spcc run --container-runtime container
+spcc run --container-runtime container   # or docker, or podman
 ```
 
-Or persist it in a config file with `container_runtime = "container"` (see <doc:Configuration>).
+Or persist it in a config file with `container_runtime = "container"` (see <doc:Configuration>). If a named runtime isn't running, `spcc` fails fast with an actionable message (e.g. "run `podman machine start`") rather than a confusing cell failure.
 
 apple/container reuses the same SPI builder images and produces identical pass/fail results in `spcc`'s smoke tests, but it hasn't been validated against as wide a range of real-world packages as Docker. Pulls happen as an explicit pre-step (deduped across concurrent cells), and `spcc` raises apple/container's 1 GB default memory cap to 8 GB per cell so non-trivial builds don't get OOM-killed. Pair it with `--timeout` when running long matrices unattended.
+
+Podman is Docker-compatible and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill). It's suited to light packages and smoke checks. Two caveats make it a poor fit for heavy matrices: (1) all concurrent cells share one `podman machine` VM's RAM (`spcc` sets no per-cell cap), so a matrix OOMs unless the machine is sized for ~N × 6 GiB of concurrency — bump it with `podman machine init/set -m <MiB>` or serialize with `--max-parallel 1`; and (2) Podman does not mount Rosetta into `--platform linux/amd64` containers even on the `applehv` provider, so amd64 Swift builds run under qemu at roughly **5–6× apple/container's wall-clock** and heavy packages time out. Always pair Podman with `--timeout`.
 
 ## Output modes
 

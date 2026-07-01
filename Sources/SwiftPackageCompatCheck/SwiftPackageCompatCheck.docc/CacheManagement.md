@@ -85,7 +85,7 @@ Cache root: /Users/me/.cache/spi-compat-check
        ...
 ```
 
-Volumes and images are reported per installed container runtime — a `[container]` section follows the `[docker]` one if you've used apple/container. Sizes are pulled from `du -sh` (for filesystem paths) and a throwaway `alpine du -sh /data` container (for volumes). Image sizes come from the runtime's own image listing.
+Volumes and images are reported per installed container runtime — a `[container]` or `[podman]` section follows the `[docker]` one if you've used apple/container or Podman. Sizes are pulled from `du -sh` (for filesystem paths) and a throwaway `alpine du -sh /data` container (for volumes). Image sizes come from the runtime's own image listing.
 
 ## Cleaning up
 

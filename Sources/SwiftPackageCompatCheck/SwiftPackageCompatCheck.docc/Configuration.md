@@ -53,8 +53,9 @@ test_no_parallel = true # run each cell's tests serially (only with test = true)
 no_live      = false
 verbose      = false
 
-# Container runtime for linux/android/wasm cells: "docker" (default) or
-# "container" (apple/container, experimental)
+# Container runtime for linux/android/wasm cells: "docker" (default),
+# "container" (apple/container, experimental), or "podman". Omit to
+# auto-detect whichever is running (container → docker → podman).
 container_runtime = "docker"
 
 # System packages the tests need (only applied when `test` / --test is on).
@@ -100,7 +101,7 @@ install_container = ["gnupg", "libgcrypt20-dev"]
 | `scheme` (`-S`) | CLI wins | Use config's value | Auto-detect via `swift package dump-package` |
 | `max_parallel` (`--max-parallel`) | CLI wins | Use config's value | `activeProcessorCount / 2` |
 | `timeout` (`--timeout`) | CLI wins | Use config's value | No timeout |
-| `container_runtime` (`--container-runtime`) | CLI wins | Use config's value | `docker` |
+| `container_runtime` (`--container-runtime`) | CLI wins | Use config's value | auto-detect (container → docker → podman) |
 | `pull_always` (`--pull-always`) | CLI `||` config | Use config's value | `false` |
 | `test` (`-t` / `--test`) | CLI `||` config | Use config's value | `false` |
 | `test_no_parallel` (`--test-no-parallel`) | CLI `||` config | Use config's value | `false` (only with `--test`) |

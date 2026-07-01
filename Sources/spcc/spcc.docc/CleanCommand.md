@@ -30,9 +30,9 @@ The cache root is `~/.cache/spi-compat-check` by default, or `$SPI_COMPAT_CACHE`
 |------|--------|
 | `<path>` (positional) | Path to the Swift package. Defaults to the current directory. |
 | `-P, --path <path>` | Same as the positional argument. Wins if both are given. |
-| `--container-runtime <name>` | Which runtime's volumes to clean: `docker` (default) or `container` (apple/container). |
+| `--container-runtime <name>` | Which runtime's volumes to clean: `docker` (default), `container` (apple/container), or `podman`. Omit to auto-detect the running runtime. |
 
-Note that `clean` only sweeps volumes for the one runtime you select. If you've run the package under both Docker and apple/container, run `clean` once per runtime — or use <doc:CleanAllCommand>, which sweeps both.
+Note that `clean` only sweeps volumes for the one runtime you select. If you've run the package under more than one runtime (Docker, apple/container, Podman), run `clean` once per runtime — or use <doc:CleanAllCommand>, which sweeps all of them. Host-side caches (logs, derived data, cloned packages) are removed regardless of runtime, before the volume sweep.
 
 ## When to use it
 

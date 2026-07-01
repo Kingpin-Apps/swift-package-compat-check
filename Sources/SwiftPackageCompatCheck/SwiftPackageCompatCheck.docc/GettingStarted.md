@@ -12,7 +12,7 @@ Install `spcc`, run your first matrix, read the output.
 |-------------|---------|-----|
 | macOS       | 15+     | `spcc` is a macOS-only tool. |
 | Xcode       | 26.4+   | For the Apple-platform cells (`macos-spm`, `macos-xcodebuild`, `ios`, `tvos`, `watchos`, `visionos`). |
-| Container runtime | Docker (any modern release) or [apple/container](https://github.com/apple/container) 0.12+ | For `linux`, `android`, `wasm` cells. Optional if you only care about Apple platforms. Docker is the default; apple/container is experimental opt-in via `--container-runtime container`. |
+| Container runtime | Docker (any modern release), [apple/container](https://github.com/apple/container) 0.12+, or Podman | For `linux`, `android`, `wasm` cells. Optional if you only care about Apple platforms. Docker is the default; select another with `--container-runtime container\|podman`, or omit to auto-detect (container → docker → podman). |
 | Swift       | 6.2+    | Only needed to build `spcc` from source. |
 
 ## Install

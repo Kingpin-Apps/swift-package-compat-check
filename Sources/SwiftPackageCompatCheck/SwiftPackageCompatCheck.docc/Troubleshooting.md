@@ -39,12 +39,12 @@ When you suspect a cell is genuinely stuck (not just slow), add a timeout as a s
 spcc run --timeout 1800   # kill any cell over 30 minutes
 ```
 
-For Docker cells, `--timeout` actually kills the container — `spcc` discovers it via `docker ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `docker kill` on the id — so it doesn't keep consuming CPU after `spcc` exits. For apple/container cells (`--container-runtime container`), the watchdog calls `container kill spcc-cell-<RUN_TS>-<platform>-<sv>` directly — the launcher sets that name on every cell because container 0.12 has no `list --filter label=`.
+For Docker (and Podman) cells, `--timeout` actually kills the container — `spcc` discovers it via `<runtime> ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `<runtime> kill` on the id — so it doesn't keep consuming CPU after `spcc` exits. For apple/container cells (`--container-runtime container`), the watchdog calls `container kill spcc-cell-<RUN_TS>-<platform>-<sv>` directly — the launcher sets that name on every cell because container 0.12 has no `list --filter label=`.
 
 If you want to manually unstick a container `spcc` started:
 
 ```bash
-# docker
+# docker (podman is identical — swap the binary)
 docker ps --filter "label=spcc-cell" -q | xargs -r docker kill
 
 # apple/container — no --filter on list, so this is a "kill all" hammer
@@ -88,12 +88,25 @@ If none of these appear AND the cell failed with "No SDK found …", file an iss
 
 Apple cells (`macos-spm`, `macos-xcodebuild`, `ios`, `tvos`, `watchos`, `visionos`) don't need Docker; they invoke `xcrun` and `xcodebuild` directly.
 
-Docker-backed cells (`linux`, `android`, `wasm`) need Docker installed and running. The error means either:
+Container-backed cells (`linux`, `android`, `wasm`) need a runtime installed and running. `spcc` preflights the selected runtime and fails fast with a specific message — *not installed* vs. *installed but not running* — before any cell runs. The error means either:
 
-- Docker isn't installed: install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or [OrbStack](https://orbstack.dev/) on Apple Silicon, which is faster).
-- Docker is installed but the daemon isn't running: open Docker Desktop / OrbStack.
+- The runtime isn't installed: install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or [OrbStack](https://orbstack.dev/) on Apple Silicon, which is faster), apple/container, or Podman.
+- The runtime is installed but its service isn't running: open Docker Desktop / OrbStack, run `container system start`, or run `podman machine start`.
 
-Confirm with `docker info`. If it prints daemon info you're good.
+Confirm with `docker info` / `container system status` / `podman info`. If it exits cleanly you're good. When no `--container-runtime` is given, `spcc` auto-detects whichever is running (container → docker → podman) and errors only if none is up.
+
+## Podman: a cell fails immediately with a credential-helper error
+
+If a Podman cell dies in a second or two with something like `error getting credentials` or `gcloud.auth.docker-helper ... Reauthentication failed`, Podman tried to authenticate to the *public* SPI registry (`registry.gitlab.com`) using a credential helper it inherited from `~/.docker/config.json` (a `credsStore` or `credHelpers` entry, e.g. `desktop` or `gcloud`). The pull needs no auth, but the broken/expired helper fails non-interactively.
+
+The SPI images are public, so bypass credential lookup with an empty auth file:
+
+```bash
+printf '{}' > /tmp/empty-auth.json
+REGISTRY_AUTH_FILE=/tmp/empty-auth.json spcc run --container-runtime podman ...
+```
+
+`REGISTRY_AUTH_FILE` is inherited by the `podman` subprocesses `spcc` spawns. (Docker and apple/container aren't affected — Docker uses the same config but its cells resolve the helper fine, and apple/container has its own auth path.)
 
 ## My logs are full of bash script content
 

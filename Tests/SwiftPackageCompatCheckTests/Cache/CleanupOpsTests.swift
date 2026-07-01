@@ -173,6 +173,51 @@ struct CleanupOpsTests {
         #expect(argv.contains("spi-compat-build-pkg-6.3:/data"))
         #expect(argv.contains("alpine"))
     }
+
+    // MARK: - podman runtime variants (docker-shaped, binary swapped)
+
+    @Test("runtime=.podman: listSPIVolumes uses server-side --filter, like docker")
+    func podmanListVolumes() async {
+        let stub = StubCommandRunner()
+        stub.responses = [(["podman", "volume", "ls"], "spi-compat-build-pkg-6.3\n")]
+        let ops = CleanupOps(runner: stub, runtime: .podman)
+        let volumes = await ops.listSPIVolumes()
+        #expect(volumes == ["spi-compat-build-pkg-6.3"])
+        #expect(stub.calls[0].contains("--filter"))
+        #expect(stub.calls[0].contains("name=spi-compat"))
+    }
+
+    @Test("runtime=.podman: removeVolume uses 'volume rm', like docker")
+    func podmanRemoveVolume() async {
+        let stub = StubCommandRunner()
+        let ops = CleanupOps(runner: stub, runtime: .podman)
+        await ops.removeVolume("spi-compat-build-pkg-6.3")
+        #expect(stub.calls[0] == ["podman", "volume", "rm", "spi-compat-build-pkg-6.3"])
+    }
+
+    @Test("runtime=.podman: removeImage uses 'rmi', like docker")
+    func podmanRemoveImage() async {
+        let stub = StubCommandRunner()
+        let ops = CleanupOps(runner: stub, runtime: .podman)
+        await ops.removeImage("registry.gitlab.com/spi/img:tag")
+        #expect(stub.calls[0] == ["podman", "rmi", "registry.gitlab.com/spi/img:tag"])
+    }
+
+    @Test("runtime=.podman: volumeSize uses 'podman run' with inline --pull, like docker")
+    func podmanVolumeSize() async {
+        let stub = StubCommandRunner()
+        stub.responses = [(["podman", "run"], "1.2G\t/data\n")]
+        let ops = CleanupOps(runner: stub, runtime: .podman)
+        let size = await ops.volumeSize("spi-compat-build-pkg-6.3")
+        #expect(size == "1.2G")
+        let argv = stub.calls[0]
+        #expect(argv.first == "podman")
+        // docker-shaped: carries the inline --pull= and no --name.
+        #expect(argv.contains("--pull=missing"))
+        #expect(!argv.contains("--name"))
+        #expect(argv.contains("spi-compat-build-pkg-6.3:/data"))
+        #expect(argv.contains("alpine"))
+    }
 }
 
 @Suite("CachePaths.trimOldLogs")

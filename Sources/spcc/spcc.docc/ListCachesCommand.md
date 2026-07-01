@@ -35,7 +35,7 @@ Cache root: /Users/me/.cache/spi-compat-check
      6.02GB  registry.gitlab.com/swiftpackageindex/spi-images:basic-6.1-latest
 ```
 
-Runtimes whose CLI isn't installed (or that have nothing cached) are omitted, so on a Docker-only machine you'll see one `[docker]` section; with apple/container in use a `[container]` section follows.
+Runtimes whose CLI isn't installed (or that have nothing cached) are omitted, so on a Docker-only machine you'll see one `[docker]` section; with apple/container or Podman in use a `[container]` or `[podman]` section follows.
 
 ## How sizes are measured
 

@@ -1,4 +1,5 @@
 import ArgumentParser
+import Command
 import Foundation
 
 struct RunCommand: AsyncParsableCommand {
@@ -108,7 +109,7 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("container-runtime"),
-        help: "Container runtime backing Linux/Android/Wasm cells: docker (default) or container (apple/container)."
+        help: "Container runtime backing Linux/Android/Wasm cells: docker (default), container (apple/container), or podman. Omit to auto-detect (container → docker → podman)."
     )
     var containerRuntimeRaw: String?
 
@@ -211,6 +212,48 @@ struct RunCommand: AsyncParsableCommand {
             packageBasename: packageBasename,
             runTimestamp: Self.runTimestamp()
         )
+        let effectiveNoLive = noLive || (config?.noLive ?? false)
+
+        // Resolve the runtime for the header. A real run preflights it here —
+        // fail fast with a clear ValidationError before any cell runs, rather
+        // than a confusing downstream subprocess failure. --dry-run only
+        // *describes* the runtime and never probes a daemon, so the preview
+        // stays fast and works with nothing installed/running: an explicit
+        // flag/config shows the exact runtime, auto shows the selection rule.
+        let resolvedRuntime: ContainerRuntime
+        let runtimeLine: String
+        if dryRun {
+            resolvedRuntime = .docker  // unused: we return before building RunOptions
+            runtimeLine = try Self.dryRunRuntimeLine(
+                cli: containerRuntimeRaw, config: config?.containerRuntime
+            )
+        } else {
+            resolvedRuntime = try await Self.resolveContainerRuntime(
+                cli: containerRuntimeRaw, config: config?.containerRuntime
+            )
+            runtimeLine = Self.isAutoSelectingRuntime(
+                cli: containerRuntimeRaw, config: config?.containerRuntime
+            )
+                ? "\(resolvedRuntime.rawValue) (auto-selected; override with --container-runtime docker|container)"
+                : resolvedRuntime.rawValue
+        }
+
+        if !quiet {
+            print("Package:   \(packageBasename)")
+            print("Scheme:    \(detectedScheme)")
+            print("Versions:  \(swiftVersions.map(\.rawValue).joined(separator: ", "))")
+            print("Platforms: \(platforms.map(\.rawValue).joined(separator: ", "))")
+            print("Runtime:   \(runtimeLine)")
+            print("")
+        }
+
+        if dryRun {
+            MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
+                pair.isSupportedBySPI ? .pending : .skipped
+            }
+            return
+        }
+
         let runOptions = RunOptions(
             xcodeForVersion: mergeXcodeOverrides(config: config),
             toolchainForVersion: mergePerVersion(
@@ -233,28 +276,9 @@ struct RunCommand: AsyncParsableCommand {
             timeoutSeconds: timeoutSeconds ?? config?.timeoutSeconds,
             runTests: effectiveRunTests,
             testNoParallel: activeTestNoParallel,
-            containerRuntime: try Self.resolveContainerRuntime(
-                cli: containerRuntimeRaw, config: config?.containerRuntime
-            ),
+            containerRuntime: resolvedRuntime,
             installContainer: activeContainerPackages
         )
-
-        let effectiveNoLive = noLive || (config?.noLive ?? false)
-
-        if !quiet {
-            print("Package:   \(packageBasename)")
-            print("Scheme:    \(detectedScheme)")
-            print("Versions:  \(swiftVersions.map(\.rawValue).joined(separator: ", "))")
-            print("Platforms: \(platforms.map(\.rawValue).joined(separator: ", "))")
-            print("")
-        }
-
-        if dryRun {
-            MatrixRenderer().render(platforms: platforms, swiftVersions: swiftVersions) { pair in
-                pair.isSupportedBySPI ? .pending : .skipped
-            }
-            return
-        }
 
         try cache.createDirectories()
         cache.trimOldLogs()
@@ -482,9 +506,38 @@ struct RunCommand: AsyncParsableCommand {
         }
     }
 
+    /// Resolve the container runtime for a command, preflighting that the chosen
+    /// runtime is actually running so a downstream `docker run` / `container run`
+    /// failure never masquerades as a build/cell failure.
+    ///
+    /// - Explicit `--container-runtime` (or config key): honour it, but preflight.
+    ///   Not installed → distinct "not found" error; installed-but-down → an
+    ///   actionable "start it" error. Either exits cleanly before any cell runs.
+    /// - Neither set → auto-detect: prefer apple/container when it's up, else
+    ///   docker, else a clear "no runtime running" error. Preferring container
+    ///   is a deliberate 2026-07-01 decision (see the spcc-apple-container-runtime
+    ///   note); `--container-runtime docker` forces byte-for-byte SPI parity.
+    ///
+    /// `runner` is injectable so the resolver is unit-testable without a real
+    /// daemon.
     static func resolveContainerRuntime(
+        cli: String?,
+        config: ContainerRuntime?,
+        runner: any CommandRunning = CommandRunner()
+    ) async throws -> ContainerRuntime {
+        if let explicit = try parseExplicitRuntime(cli: cli, config: config) {
+            try await preflightRuntime(explicit, runner: runner)
+            return explicit
+        }
+        return try await autoDetectRuntime(runner: runner)
+    }
+
+    /// The explicitly requested runtime from the flag (wins) or config, or `nil`
+    /// when neither is set (→ auto). Throws on an unknown flag string. Pure —
+    /// no daemon probe — so it's safe to call on the `--dry-run` path.
+    static func parseExplicitRuntime(
         cli: String?, config: ContainerRuntime?
-    ) throws -> ContainerRuntime {
+    ) throws -> ContainerRuntime? {
         if let cli, !cli.isEmpty {
             guard let runtime = ContainerRuntime(rawValue: cli) else {
                 throw ValidationError(
@@ -493,7 +546,67 @@ struct RunCommand: AsyncParsableCommand {
             }
             return runtime
         }
-        return config ?? .docker
+        return config
+    }
+
+    /// The `Runtime:` header line for `--dry-run`, which never probes a daemon
+    /// (the preview stays fast and daemon-independent). An explicit flag/config
+    /// shows the exact runtime; auto shows the selection rule, since the real
+    /// choice depends on which runtime is running at execution time. Still
+    /// rejects an unknown flag string (parsing is free and daemon-independent).
+    static func dryRunRuntimeLine(
+        cli: String?, config: ContainerRuntime?
+    ) throws -> String {
+        if let explicit = try parseExplicitRuntime(cli: cli, config: config) {
+            return explicit.rawValue
+        }
+        return "auto (prefers apple/container, then docker, then podman; resolved at run time)"
+    }
+
+    /// Whether `resolveContainerRuntime` will auto-detect (no explicit runtime
+    /// from CLI or config), so callers can surface a "using <runtime>" banner.
+    static func isAutoSelectingRuntime(
+        cli: String?, config: ContainerRuntime?
+    ) -> Bool {
+        (cli?.isEmpty ?? true) && config == nil
+    }
+
+    /// Throw an actionable `ValidationError` unless `runtime` is installed *and*
+    /// running.
+    private static func preflightRuntime(
+        _ runtime: ContainerRuntime, runner: any CommandRunning
+    ) async throws {
+        switch await runtime.availability(runner: runner) {
+        case .running:
+            return
+        case .notInstalled:
+            throw ValidationError(
+                "Container runtime `\(runtime.binary)` was requested but isn't installed (not found on PATH)."
+            )
+        case .installedNotRunning:
+            throw ValidationError(
+                "Container runtime `\(runtime.binary)` is installed but its service isn't running — \(runtime.startHint), then retry."
+            )
+        }
+    }
+
+    /// Pick whichever runtime is running, in priority order apple/container →
+    /// docker → podman; error if none is up.
+    private static func autoDetectRuntime(
+        runner: any CommandRunning
+    ) async throws -> ContainerRuntime {
+        if await ContainerRuntime.container.availability(runner: runner) == .running {
+            return .container
+        }
+        if await ContainerRuntime.docker.availability(runner: runner) == .running {
+            return .docker
+        }
+        if await ContainerRuntime.podman.availability(runner: runner) == .running {
+            return .podman
+        }
+        throw ValidationError(
+            "No container runtime is running. Start one and retry — apple/container: \(ContainerRuntime.container.startHint); Docker: \(ContainerRuntime.docker.startHint); podman: \(ContainerRuntime.podman.startHint)."
+        )
     }
 
     private static func runTimestamp() -> String {

@@ -258,3 +258,85 @@ struct ContainerRuntimeSanitiseTests {
         #expect(name != other)
     }
 }
+
+@Suite("ContainerRuntime — podman (docker-shaped, binary swapped)")
+struct ContainerRuntimePodmanTests {
+    @Test("runArgvHead matches docker's shape with the podman binary — no -m, no --name")
+    func podmanHead() {
+        let argv = ContainerRuntime.podman.runArgvHead(
+            cellLabel: "20260607T120000-linux-6.3",
+            pullPolicy: .missing
+        )
+        #expect(argv == [
+            "podman", "run",
+            "--pull=missing",
+            "--rm",
+            "--platform", "linux/amd64",
+        ])
+        #expect(!argv.contains("-m"))
+        #expect(!argv.contains("--name"))
+    }
+
+    @Test("runArgvHead honours pullPolicy=always")
+    func podmanHeadAlways() {
+        let argv = ContainerRuntime.podman.runArgvHead(cellLabel: "x", pullPolicy: .always)
+        #expect(argv.contains("--pull=always"))
+    }
+
+    @Test("pullArgv is nil — podman pulls inline via --pull, like docker")
+    func podmanPullNil() {
+        #expect(ContainerRuntime.podman.pullArgv(image: "img") == nil)
+    }
+
+    @Test("volume/image removal use docker verbs with the podman binary")
+    func podmanRemoval() {
+        #expect(ContainerRuntime.podman.removeVolumeArgv(name: "v")
+                == ["podman", "volume", "rm", "v"])
+        #expect(ContainerRuntime.podman.removeImageArgv(reference: "r")
+                == ["podman", "rmi", "r"])
+    }
+
+    @Test("listVolumesArgv carries the server-side --filter name=, like docker")
+    func podmanVolumeList() {
+        let argv = ContainerRuntime.podman.listVolumesArgv(prefix: "spi-compat")
+        #expect(argv.first == "podman")
+        #expect(argv.contains("--filter"))
+        #expect(argv.contains("name=spi-compat"))
+    }
+
+    @Test("listImagesArgv takes the repository positionally, like docker")
+    func podmanImageList() {
+        let argv = ContainerRuntime.podman.listImagesArgv(repository: "registry.gitlab.com/spi/img")
+        #expect(argv.first == "podman")
+        #expect(argv.contains("registry.gitlab.com/spi/img"))
+        #expect(argv.contains("--format"))
+    }
+
+    @Test("parseVolumeList uses the line-per-name path")
+    func podmanParseVolumeList() {
+        let volumes = ContainerRuntime.podman.parseVolumeList(
+            "spi-compat-a\nspi-compat-b\nunrelated\n", prefix: "spi-compat"
+        )
+        #expect(volumes == ["spi-compat-a", "spi-compat-b"])
+    }
+
+    @Test("parseImageList parses repo:tag|size lines")
+    func podmanParseImageList() {
+        let images = ContainerRuntime.podman.parseImageList(
+            "registry.gitlab.com/spi/img:basic-6.3-latest|1.2GB",
+            repository: "registry.gitlab.com/spi/img"
+        )
+        #expect(images.count == 1)
+        #expect(images[0].size == "1.2GB")
+    }
+
+    @Test("startHint points at `podman machine start`")
+    func podmanStartHint() {
+        #expect(ContainerRuntime.podman.startHint.contains("podman machine start"))
+    }
+
+    @Test("statusProbe uses `podman info`")
+    func podmanStatusProbe() {
+        #expect(ContainerRuntime.podman.statusProbeArgv == ["podman", "info"])
+    }
+}

@@ -22,8 +22,14 @@ public enum PullPolicy: String, Sendable, CaseIterable, Codable {
 public enum ContainerRuntime: String, Sendable, CaseIterable, Codable {
     case docker
     case container
+    /// podman (podman-machine-backed on macOS). CLI is Docker-compatible for
+    /// every flag spcc uses — including `ps --filter label=` — so it shares the
+    /// docker code paths, differing only in the binary name and the VM-machine
+    /// liveness/start semantics. Bounded by the `podman machine` VM RAM (sized
+    /// via `podman machine init/set -m`), so it needs no per-container `-m` cap.
+    case podman
 
-    /// The CLI binary invoked on the host. Both runtimes expose a single
+    /// The CLI binary invoked on the host. All runtimes expose a single
     /// top-level executable.
     public var binary: String { rawValue }
 }
@@ -61,7 +67,7 @@ public extension ContainerRuntime {
         memory: String? = nil
     ) -> [String] {
         switch self {
-        case .docker:
+        case .docker, .podman:
             return [
                 binary, "run",
                 "--pull=\(pullPolicy.rawValue)",
@@ -88,7 +94,7 @@ public extension ContainerRuntime {
     /// handles pulling inline via `--pull=` on `run`.
     func pullArgv(image: String) -> [String]? {
         switch self {
-        case .docker: return nil
+        case .docker, .podman: return nil
         case .container:
             return [binary, "image", "pull", "--platform", "linux/amd64", image]
         }
@@ -97,7 +103,7 @@ public extension ContainerRuntime {
     /// Argv to remove a single named volume.
     func removeVolumeArgv(name: String) -> [String] {
         switch self {
-        case .docker: return [binary, "volume", "rm", name]
+        case .docker, .podman: return [binary, "volume", "rm", name]
         case .container: return [binary, "volume", "delete", name]
         }
     }
@@ -105,7 +111,7 @@ public extension ContainerRuntime {
     /// Argv to remove a single image by reference.
     func removeImageArgv(reference: String) -> [String] {
         switch self {
-        case .docker: return [binary, "rmi", reference]
+        case .docker, .podman: return [binary, "rmi", reference]
         case .container: return [binary, "image", "delete", reference]
         }
     }
@@ -115,7 +121,7 @@ public extension ContainerRuntime {
     /// JSON and `parseVolumeList(_:prefix:)` filters client-side.
     func listVolumesArgv(prefix: String) -> [String] {
         switch self {
-        case .docker:
+        case .docker, .podman:
             return [
                 binary, "volume", "ls",
                 "--filter", "name=\(prefix)",
@@ -131,7 +137,7 @@ public extension ContainerRuntime {
     /// filtered here.
     func parseVolumeList(_ stdout: String, prefix: String) -> [String] {
         switch self {
-        case .docker:
+        case .docker, .podman:
             return stdout
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .map(String.init)
@@ -153,7 +159,7 @@ public extension ContainerRuntime {
     /// emits JSON and `parseImageList(_:repository:)` filters client-side.
     func listImagesArgv(repository: String) -> [String] {
         switch self {
-        case .docker:
+        case .docker, .podman:
             return [
                 binary, "images", repository,
                 "--format", "{{.Repository}}:{{.Tag}}|{{.Size}}",
@@ -172,7 +178,7 @@ public extension ContainerRuntime {
         _ stdout: String, repository: String
     ) -> [(reference: String, size: String)] {
         switch self {
-        case .docker:
+        case .docker, .podman:
             return stdout
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .compactMap { line in
@@ -254,32 +260,34 @@ public extension ContainerRuntime {
     /// happen against the pure helpers above (`runArgvHead`, `pullArgv`,
     /// `removeVolumeArgv`, …) rather than this closure.
     ///
-    /// Docker: `docker ps --filter label=spcc-cell=<label> -q` → `docker kill`
-    /// per discovered id. Container: single `container kill <sanitised-name>`
+    /// Docker/Podman: `<binary> ps --filter label=spcc-cell=<label> -q` →
+    /// `<binary> kill` per discovered id (podman's `ps` supports `--filter`
+    /// exactly like docker). Container: single `container kill <sanitised-name>`
     /// because the launcher set `--name` deterministically at start.
     var killClosure: @Sendable (String) async -> Void {
         switch self {
-        case .docker:
-            return Self.dockerKillByLabel
+        case .docker, .podman:
+            let binary = self.binary  // Sendable String captured into the closure
+            return { label in await Self.killByLabel(binary: binary, label: label) }
         case .container:
             return Self.containerKillByName
         }
     }
 
     @Sendable
-    private static func dockerKillByLabel(_ label: String) async {
+    private static func killByLabel(binary: String, label: String) async {
         let runner = CommandRunner()
         let ids = await Self.captureLines(
             runner: runner,
             arguments: [
-                "docker", "ps",
+                binary, "ps",
                 "--filter", "label=spcc-cell=\(label)",
                 "-q",
             ]
         )
         for id in ids {
             _ = await Self.captureLines(
-                runner: runner, arguments: ["docker", "kill", id]
+                runner: runner, arguments: [binary, "kill", id]
             )
         }
     }
@@ -307,5 +315,60 @@ public extension ContainerRuntime {
         return String(data: stdout, encoding: .utf8)?
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init) ?? []
+    }
+}
+
+public extension ContainerRuntime {
+    /// Result of probing whether a runtime is usable on this host.
+    enum Availability: Sendable, Equatable {
+        /// Binary present and the daemon/service answered a liveness probe.
+        case running
+        /// Binary present but the daemon/service is down.
+        case installedNotRunning
+        /// Binary not found on `PATH`.
+        case notInstalled
+    }
+
+    /// Command that exits 0 iff the runtime's daemon/service is up. `docker info`
+    /// fails fast (non-zero) when Docker Desktop's VM is down; container 0.12's
+    /// `container system status` is apple/container's equivalent liveness probe.
+    var statusProbeArgv: [String] {
+        switch self {
+        case .docker, .podman: return [binary, "info"]
+        case .container: return [binary, "system", "status"]
+        }
+    }
+
+    /// Actionable hint for the "installed but not running" error, telling the
+    /// user how to bring the runtime up.
+    var startHint: String {
+        switch self {
+        case .docker:
+            return "start Docker Desktop (or run `open -a Docker`) and wait for it to finish booting"
+        case .container:
+            return "run `container system start`"
+        case .podman:
+            return "run `podman machine start` (first `podman machine init` if you have no machine)"
+        }
+    }
+
+    /// Probe the host for this runtime with a single cheap status command and
+    /// classify the outcome: success → `.running`, executable-not-found →
+    /// `.notInstalled`, any other non-zero exit / error → `.installedNotRunning`.
+    ///
+    /// `runner` is injectable so the resolver can be unit-tested against a
+    /// stubbed `CommandRunning` without a real daemon.
+    func availability(
+        runner: any CommandRunning = CommandRunner()
+    ) async -> Availability {
+        do {
+            for try await _ in runner.run(arguments: statusProbeArgv) {}
+            return .running
+        } catch let error as CommandError {
+            if case .executableNotFound = error { return .notInstalled }
+            return .installedNotRunning
+        } catch {
+            return .installedNotRunning
+        }
     }
 }
