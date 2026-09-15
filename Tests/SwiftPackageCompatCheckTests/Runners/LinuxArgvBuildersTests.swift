@@ -122,6 +122,16 @@ struct DefaultDockerImageTests {
                 == "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.3-latest")
     }
 
+    @Test("Swift 6.4 is pinned to SPI's 1.33.0 release tag (no -latest yet)")
+    func pinnedReleaseTag() {
+        #expect(Platform.linux.defaultDockerImage(for: .v6_4)
+                == "registry.gitlab.com/swiftpackageindex/spi-images:basic-6.4-1.33.0")
+        #expect(Platform.android.defaultDockerImage(for: .v6_4)
+                == "registry.gitlab.com/swiftpackageindex/spi-images:android-6.4-1.33.0")
+        #expect(Platform.wasm.defaultDockerImage(for: .v6_4)
+                == "registry.gitlab.com/swiftpackageindex/spi-images:wasm-6.4-1.33.0")
+    }
+
     @Test("Android and Wasm follow SPI's pattern; Apple platforms return nil")
     func nonLinuxPlatforms() {
         #expect(Platform.android.defaultDockerImage(for: .v6_3)

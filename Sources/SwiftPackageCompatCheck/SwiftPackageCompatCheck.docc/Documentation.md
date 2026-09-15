@@ -8,7 +8,7 @@ Reproduce the [Swift Package Index](https://swiftpackageindex.com) build matrix 
 
 ![A full matrix run against the bundled HelloWorld fixture — all 34 cells green.](hello-world-matrix)
 
-The default matrix is 9 platforms × 4 Swift versions = 36 cells, minus the 2 SPI doesn't run (android@6.0 and wasm@6.0, shown as `—`) = 34 cells.
+The default matrix is 9 platforms × 5 Swift versions = 45 cells, minus the 2 SPI doesn't run (android@6.0 and wasm@6.0, shown as `—`) = 43 cells.
 
 ## Why this exists
 

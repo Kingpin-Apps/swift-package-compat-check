@@ -10,8 +10,8 @@ struct BuildPairTests {
 
     @Test("supported drops Android@6.0 and WASM@6.0")
     func supportedMatchesSPI() {
-        // 9 platforms × 4 Swift versions − 2 = 34 cells, matching SPI's BuildPair.all.
-        #expect(BuildPair.supported.count == 34)
+        // 9 platforms × 5 Swift versions − 2 = 43 cells, matching SPI's BuildPair.all.
+        #expect(BuildPair.supported.count == 43)
         #expect(!BuildPair.supported.contains(BuildPair(platform: .android, swiftVersion: .v6_0)))
         #expect(!BuildPair.supported.contains(BuildPair(platform: .wasm, swiftVersion: .v6_0)))
         #expect(BuildPair.supported.contains(BuildPair(platform: .android, swiftVersion: .v6_1)))

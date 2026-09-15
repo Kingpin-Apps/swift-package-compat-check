@@ -71,6 +71,7 @@ install_container = ["gnupg", "libgcrypt20-dev"]
 "6.1" = "/Applications/Xcode-16.3.app"
 "6.2" = "/Applications/Xcode-26.3.app"
 "6.3" = "/Applications/Xcode-26.4.app"
+"6.4" = "/Applications/Xcode-27.0.app"
 
 # Per-Swift-version toolchain overrides for macos-spm cells
 [toolchain]
@@ -96,7 +97,7 @@ install_container = ["gnupg", "libgcrypt20-dev"]
 
 | Field | If CLI flag is set | Else if config has a value | Else |
 |-------|--------------------|----------------------------|------|
-| `swift_versions` (`-s`) | CLI wins | Use config's list | All four (6.0–6.3) |
+| `swift_versions` (`-s`) | CLI wins | Use config's list | All five (6.0–6.4) |
 | `platforms` (`-p`) | CLI wins | Use config's list | All nine |
 | `scheme` (`-S`) | CLI wins | Use config's value | Auto-detect via `swift package dump-package` |
 | `max_parallel` (`--max-parallel`) | CLI wins | Use config's value | `activeProcessorCount / 2` |

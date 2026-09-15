@@ -160,6 +160,7 @@ struct DefaultWasmSDKURLTests {
         #expect(Platform.wasm.defaultWasmSDKURL(for: .v6_1)?.contains("swift-wasm-6.1-RELEASE") == true)
         #expect(Platform.wasm.defaultWasmSDKURL(for: .v6_2)?.contains("wasip1") == true)
         #expect(Platform.wasm.defaultWasmSDKURL(for: .v6_3)?.contains("wasip1") == true)
+        #expect(Platform.wasm.defaultWasmSDKURL(for: .v6_4)?.hasPrefix("https://download.swift.org/swift-6.4.0-release/") == true)
         // Non-wasm platforms: nil.
         #expect(Platform.android.defaultWasmSDKURL(for: .v6_3) == nil)
         #expect(Platform.linux.defaultWasmSDKURL(for: .v6_3) == nil)

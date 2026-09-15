@@ -90,7 +90,8 @@ public struct RunOptions: Sendable {
 
 public extension Platform {
     /// SPI's public builder image tag for this platform + Swift version, in the
-    /// `registry.gitlab.com/swiftpackageindex/spi-images:<plat>-<sv>-latest` shape.
+    /// `registry.gitlab.com/swiftpackageindex/spi-images:<plat>-<sv>-latest` shape
+    /// (see ``SwiftVersion/spiImageTagSuffix`` for versions pinned to a release).
     /// Returns `nil` for Apple platforms (no docker image needed).
     func defaultDockerImage(for swiftVersion: SwiftVersion) -> String? {
         let suffix: String
@@ -100,7 +101,7 @@ public extension Platform {
         case .wasm: suffix = "wasm"
         default: return nil
         }
-        return "registry.gitlab.com/swiftpackageindex/spi-images:\(suffix)-\(swiftVersion.rawValue)-latest"
+        return "registry.gitlab.com/swiftpackageindex/spi-images:\(suffix)-\(swiftVersion.rawValue)-\(swiftVersion.spiImageTagSuffix)"
     }
 
     /// Default wasm SDK artifact-bundle URL used by the bash resolver when the SPI
@@ -116,6 +117,9 @@ public extension Platform {
             return "https://github.com/swiftwasm/swift/releases/download/swift-wasm-6.2-RELEASE/swift-wasm-6.2-RELEASE-wasm32-unknown-wasip1.artifactbundle.zip"
         case .v6_3:
             return "https://github.com/swiftwasm/swift/releases/download/swift-wasm-6.3-RELEASE/swift-wasm-6.3-RELEASE-wasm32-unknown-wasip1.artifactbundle.zip"
+        case .v6_4:
+            // swiftwasm stopped publishing release bundles; swift.org hosts the official SDK.
+            return "https://download.swift.org/swift-6.4.0-release/wasm-sdk/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE_wasm.artifactbundle.tar.gz"
         }
     }
 }

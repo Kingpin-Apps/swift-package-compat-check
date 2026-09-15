@@ -45,6 +45,6 @@ struct PlatformTests {
 struct SwiftVersionTests {
     @Test("rawValue matches X.Y formatting")
     func rawValueFormat() {
-        #expect(SwiftVersion.allCases.map(\.rawValue) == ["6.0", "6.1", "6.2", "6.3"])
+        #expect(SwiftVersion.allCases.map(\.rawValue) == ["6.0", "6.1", "6.2", "6.3", "6.4"])
     }
 }

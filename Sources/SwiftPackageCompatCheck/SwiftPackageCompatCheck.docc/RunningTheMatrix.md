@@ -59,7 +59,8 @@ spcc run \
   --xcode-6.0 /Applications/Xcode-16.2.app \
   --xcode-6.1 /Applications/Xcode-16.3.app \
   --xcode-6.2 /Applications/Xcode-26.3.app \
-  --xcode-6.3 /Applications/Xcode-26.4.app
+  --xcode-6.3 /Applications/Xcode-26.4.app \
+  --xcode-6.4 /Applications/Xcode-27.0.app
 ```
 
 `--xcode-6.X` sets `DEVELOPER_DIR=<path>/Contents/Developer` for that Swift version's xcodebuild cells. Same shape for toolchain selection on `macos-spm`:
@@ -72,7 +73,7 @@ This adds `xcrun --toolchain swift-6.0-RELEASE` to the `swift build` invocation.
 
 ## Per-image overrides
 
-By default `spcc` uses SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-<sv>-latest`. Override per platform per Swift version when you need to pin a specific digest or test against a custom image:
+By default `spcc` uses SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-<sv>-latest` (Swift 6.4 is pinned to `<platform>-6.4-1.33.0` until SPI publishes a `-latest` tag for it). Override per platform per Swift version when you need to pin a specific digest or test against a custom image:
 
 ```bash
 spcc run --linux-image-6.3 my-registry.example/swift:6.3-jammy
@@ -80,9 +81,9 @@ spcc run --android-image-6.2 registry.gitlab.com/.../spi-images@sha256:abc...
 spcc run --wasm-image-6.1 alternate-wasm-image:tag
 ```
 
-The Android and Wasm override flags exist for Swift 6.1–6.3 only — SPI doesn't run those platforms against Swift 6.0, so there's no cell to override.
+The Android and Wasm override flags exist for Swift 6.1–6.4 only — SPI doesn't run those platforms against Swift 6.0, so there's no cell to override.
 
-For wasm specifically, the cross-SDK resolver inside the container falls back to downloading and installing a swiftwasm artifact bundle when the image's bundled SDK doesn't match. The default fallback URLs are the upstream swiftwasm release builds; override per Swift version:
+For wasm specifically, the cross-SDK resolver inside the container falls back to downloading and installing a Wasm SDK artifact bundle when the image's bundled SDK doesn't match. The default fallback URLs are the upstream swiftwasm release builds for 6.1–6.3 and the official swift.org SDK for 6.4; override per Swift version:
 
 ```bash
 spcc run --wasm-sdk-url-6.3 https://internal.example/sdk.zip

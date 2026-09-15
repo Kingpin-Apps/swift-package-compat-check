@@ -24,7 +24,7 @@ This page is the flag reference. The narrative guide — output modes, test mode
 
 | Flag | Effect |
 |------|--------|
-| `-s, --swift <list>` | Comma-separated Swift versions (default: `6.0,6.1,6.2,6.3`). |
+| `-s, --swift <list>` | Comma-separated Swift versions (default: `6.0,6.1,6.2,6.3,6.4`). |
 | `-p, --platforms <list>` | Comma-separated platforms (default: all nine). |
 | `-S, --scheme <name>` | Override the auto-detected scheme used by xcodebuild cells. |
 | `--dry-run` | Print the matrix that would run without building anything. |
@@ -40,16 +40,16 @@ This page is the flag reference. The narrative guide — output modes, test mode
 
 ## Per-Swift-version overrides
 
-Each of these exists once per Swift version — substitute `6.X` with a concrete version. Xcode, toolchain, and Linux-image overrides cover 6.0–6.3; Android/Wasm overrides cover 6.1–6.3 (SPI doesn't run those platforms on Swift 6.0).
+Each of these exists once per Swift version — substitute `6.X` with a concrete version. Xcode, toolchain, and Linux-image overrides cover 6.0–6.4; Android/Wasm overrides cover 6.1–6.4 (SPI doesn't run those platforms on Swift 6.0).
 
 | Flag | Effect |
 |------|--------|
 | `--xcode-6.X <path>` | Xcode.app to use for that version's xcodebuild cells. |
 | `--toolchain-6.X <id>` | Toolchain identifier for that version's `macos-spm` cells. |
 | `--linux-image-6.X <ref>` | Override the Linux builder image. |
-| `--android-image-6.X <ref>` | Override the Android builder image (6.1–6.3 only). |
-| `--wasm-image-6.X <ref>` | Override the Wasm builder image (6.1–6.3 only). |
-| `--wasm-sdk-url-6.X <url>` | Override the Wasm SDK fallback download URL (6.1–6.3 only). |
+| `--android-image-6.X <ref>` | Override the Android builder image (6.1–6.4 only). |
+| `--wasm-image-6.X <ref>` | Override the Wasm builder image (6.1–6.4 only). |
+| `--wasm-sdk-url-6.X <url>` | Override the Wasm SDK fallback download URL (6.1–6.4 only). |
 
 ## Execution control
 

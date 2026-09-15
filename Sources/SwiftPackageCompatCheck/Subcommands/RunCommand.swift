@@ -25,7 +25,7 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(
         name: [.short, .customLong("swift")],
-        help: "Comma-separated Swift versions (default: 6.0,6.1,6.2,6.3)."
+        help: "Comma-separated Swift versions (default: 6.0,6.1,6.2,6.3,6.4)."
     )
     var swiftRaw: String?
 
@@ -53,6 +53,9 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .customLong("xcode-6.3"), help: "Xcode.app path for Swift 6.3 xcodebuild jobs.")
     var xcode63: String?
 
+    @Option(name: .customLong("xcode-6.4"), help: "Xcode.app path for Swift 6.4 xcodebuild jobs.")
+    var xcode64: String?
+
     @Option(name: .customLong("toolchain-6.0"), help: "Toolchain identifier for Swift 6.0 macos-spm jobs.")
     var toolchain60: String?
 
@@ -64,6 +67,9 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("toolchain-6.3"), help: "Toolchain identifier for Swift 6.3 macos-spm jobs.")
     var toolchain63: String?
+
+    @Option(name: .customLong("toolchain-6.4"), help: "Toolchain identifier for Swift 6.4 macos-spm jobs.")
+    var toolchain64: String?
 
     @Option(name: .customLong("linux-image-6.0"), help: "Override the Linux builder image for Swift 6.0 (default: SPI's basic-6.0-latest).")
     var linuxImage60: String?
@@ -77,6 +83,9 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .customLong("linux-image-6.3"), help: "Override the Linux builder image for Swift 6.3.")
     var linuxImage63: String?
 
+    @Option(name: .customLong("linux-image-6.4"), help: "Override the Linux builder image for Swift 6.4.")
+    var linuxImage64: String?
+
     @Option(name: .customLong("android-image-6.1"), help: "Override the Android builder image for Swift 6.1.")
     var androidImage61: String?
 
@@ -85,6 +94,9 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("android-image-6.3"), help: "Override the Android builder image for Swift 6.3.")
     var androidImage63: String?
+
+    @Option(name: .customLong("android-image-6.4"), help: "Override the Android builder image for Swift 6.4.")
+    var androidImage64: String?
 
     @Option(name: .customLong("wasm-image-6.1"), help: "Override the Wasm builder image for Swift 6.1.")
     var wasmImage61: String?
@@ -95,6 +107,9 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .customLong("wasm-image-6.3"), help: "Override the Wasm builder image for Swift 6.3.")
     var wasmImage63: String?
 
+    @Option(name: .customLong("wasm-image-6.4"), help: "Override the Wasm builder image for Swift 6.4.")
+    var wasmImage64: String?
+
     @Option(name: .customLong("wasm-sdk-url-6.1"), help: "Override the Wasm SDK fallback URL for Swift 6.1.")
     var wasmSDKURL61: String?
 
@@ -103,6 +118,9 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("wasm-sdk-url-6.3"), help: "Override the Wasm SDK fallback URL for Swift 6.3.")
     var wasmSDKURL63: String?
+
+    @Option(name: .customLong("wasm-sdk-url-6.4"), help: "Override the Wasm SDK fallback URL for Swift 6.4.")
+    var wasmSDKURL64: String?
 
     @Flag(name: .customLong("pull-always"), help: "Pass --pull=always to docker (default: --pull=missing).")
     var pullAlways: Bool = false
@@ -714,7 +732,7 @@ struct RunCommand: AsyncParsableCommand {
     private func parseXcodeOverrides() -> [SwiftVersion: URL] {
         var map: [SwiftVersion: URL] = [:]
         let pairs: [(SwiftVersion, String?)] = [
-            (.v6_0, xcode60), (.v6_1, xcode61), (.v6_2, xcode62), (.v6_3, xcode63),
+            (.v6_0, xcode60), (.v6_1, xcode61), (.v6_2, xcode62), (.v6_3, xcode63), (.v6_4, xcode64),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = URL(fileURLWithPath: raw!)
@@ -725,7 +743,7 @@ struct RunCommand: AsyncParsableCommand {
     private func parseToolchainOverrides() -> [SwiftVersion: String] {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
-            (.v6_0, toolchain60), (.v6_1, toolchain61), (.v6_2, toolchain62), (.v6_3, toolchain63),
+            (.v6_0, toolchain60), (.v6_1, toolchain61), (.v6_2, toolchain62), (.v6_3, toolchain63), (.v6_4, toolchain64),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
@@ -736,7 +754,7 @@ struct RunCommand: AsyncParsableCommand {
     private func parseLinuxImageOverrides() -> [SwiftVersion: String] {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
-            (.v6_0, linuxImage60), (.v6_1, linuxImage61), (.v6_2, linuxImage62), (.v6_3, linuxImage63),
+            (.v6_0, linuxImage60), (.v6_1, linuxImage61), (.v6_2, linuxImage62), (.v6_3, linuxImage63), (.v6_4, linuxImage64),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
@@ -747,7 +765,7 @@ struct RunCommand: AsyncParsableCommand {
     private func parseAndroidImageOverrides() -> [SwiftVersion: String] {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
-            (.v6_1, androidImage61), (.v6_2, androidImage62), (.v6_3, androidImage63),
+            (.v6_1, androidImage61), (.v6_2, androidImage62), (.v6_3, androidImage63), (.v6_4, androidImage64),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
@@ -758,7 +776,7 @@ struct RunCommand: AsyncParsableCommand {
     private func parseWasmImageOverrides() -> [SwiftVersion: String] {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
-            (.v6_1, wasmImage61), (.v6_2, wasmImage62), (.v6_3, wasmImage63),
+            (.v6_1, wasmImage61), (.v6_2, wasmImage62), (.v6_3, wasmImage63), (.v6_4, wasmImage64),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
@@ -769,7 +787,7 @@ struct RunCommand: AsyncParsableCommand {
     private func parseWasmSDKURLOverrides() -> [SwiftVersion: String] {
         var map: [SwiftVersion: String] = [:]
         let pairs: [(SwiftVersion, String?)] = [
-            (.v6_1, wasmSDKURL61), (.v6_2, wasmSDKURL62), (.v6_3, wasmSDKURL63),
+            (.v6_1, wasmSDKURL61), (.v6_2, wasmSDKURL62), (.v6_3, wasmSDKURL63), (.v6_4, wasmSDKURL64),
         ]
         for (sv, raw) in pairs where raw != nil {
             map[sv] = raw
