@@ -46,7 +46,9 @@ scheme = "MyLibrary"
 
 # Defaults for the global flags
 max_parallel = 4
-timeout      = 600     # seconds
+timeout      = 600     # seconds per container cell (default 3600; 0 = none)
+stall_timeout = 300    # fail a container cell after this long without output (default 900; 0 = off)
+linux_mode   = "native" # "native" (default) or "spi" for SPI's amd64 images
 pull_always  = true
 test         = true    # run `swift test` instead of `swift build`
 test_no_parallel = true # run each cell's tests serially (only with test = true)
@@ -101,7 +103,9 @@ install_container = ["gnupg", "libgcrypt20-dev"]
 | `platforms` (`-p`) | CLI wins | Use config's list | All nine |
 | `scheme` (`-S`) | CLI wins | Use config's value | Auto-detect via `swift package dump-package` |
 | `max_parallel` (`--max-parallel`) | CLI wins | Use config's value | `activeProcessorCount / 2` |
-| `timeout` (`--timeout`) | CLI wins | Use config's value | No timeout |
+| `timeout` (`--timeout`) | CLI wins | Use config's value | 3600s (`0` = no limit) |
+| `stall_timeout` (`--stall-timeout`) | CLI wins | Use config's value | 900s (`0` = off) |
+| `linux_mode` (`--linux-mode`) | CLI wins | Use config's value | `native` |
 | `container_runtime` (`--container-runtime`) | CLI wins | Use config's value | auto-detect (container → docker → podman) |
 | `pull_always` (`--pull-always`) | CLI `||` config | Use config's value | `false` |
 | `test` (`-t` / `--test`) | CLI `||` config | Use config's value | `false` |

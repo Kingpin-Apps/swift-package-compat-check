@@ -6,6 +6,8 @@ List or remove cached SPI builder images.
 
 The Linux/Android/Wasm cells pull SPI's builder images from `registry.gitlab.com/swiftpackageindex/spi-images`, and at 5–11 GB each they dominate `spcc`'s disk footprint. `images` shows what's cached and — with `--remove` — drops them, across **all installed container runtimes**.
 
+`images` only manages SPI's images. Native Linux cells (the default `--linux-mode native`) use the official `swift:X.Y-jammy` images, which other projects often share, so `spcc` leaves them alone. Remove those with `docker rmi swift:6.2-jammy` (or your runtime's equivalent) when you no longer need them.
+
 ```bash
 spcc images [--remove]
 spcc images --help

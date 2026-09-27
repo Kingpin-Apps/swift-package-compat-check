@@ -1,8 +1,11 @@
 import Command
 import Foundation
 
-/// Runs the `linux` cells of the SPI matrix via `<runtime> run` against
-/// `registry.gitlab.com/swiftpackageindex/spi-images:basic-X.Y-latest`.
+/// Runs the `linux` cells of the SPI matrix via `<runtime> run`: by default
+/// against the official `swift:X.Y-jammy` image at the host's architecture
+/// (``LinuxMode/native``), or against SPI's amd64
+/// `registry.gitlab.com/swiftpackageindex/spi-images:basic-X.Y-latest`
+/// with `--linux-mode spi`.
 /// `runtime` is whichever host-side container CLI the user picked
 /// (`docker` by default; `apple/container` opt-in via `--container-runtime`).
 /// Non-linux platforms are returned `.pending` so this runner can sit in a
@@ -42,7 +45,9 @@ public struct LinuxRunner: Sendable {
         if let pullCoordinator {
             do {
                 try await pullCoordinator.ensurePulled(
-                    image: image, policy: context.options.pullPolicy
+                    image: image,
+                    policy: context.options.pullPolicy,
+                    platform: context.options.linuxMode.containerPlatform
                 )
             } catch {
                 return CellOutcome(
@@ -63,7 +68,8 @@ public struct LinuxRunner: Sendable {
             runtime: runtime,
             useRosetta: context.options.useRosetta == true,
             installPackages: context.options.installContainer,
-            noParallel: context.options.testNoParallel
+            noParallel: context.options.testNoParallel,
+            mode: context.options.linuxMode
         )
 
         let logPath = context.cache.logPath(for: pair)
@@ -74,6 +80,7 @@ public struct LinuxRunner: Sendable {
             workingDirectory: nil,
             logPath: logPath,
             timeoutSeconds: context.options.timeoutSeconds,
+            stallSeconds: context.options.stallSeconds,
             onTimeout: { await killClosure(cellLabel) }
         )
         return result.cellOutcome(logPath: logPath)
@@ -83,6 +90,6 @@ public struct LinuxRunner: Sendable {
         if let override = options.linuxImageForVersion[swiftVersion], !override.isEmpty {
             return override
         }
-        return Platform.linux.defaultDockerImage(for: swiftVersion)
+        return options.linuxMode.defaultImage(for: swiftVersion)
     }
 }

@@ -22,6 +22,8 @@ import SystemPackage
 /// platforms      = ["ios", "macos-spm", "linux"]
 /// scheme         = "MyLibrary"
 /// timeout        = 600
+/// stall_timeout  = 900
+/// linux_mode     = "native"
 /// max_parallel   = 4
 /// pull_always    = true
 ///
@@ -41,6 +43,8 @@ public struct SPCCConfig: Sendable {
     public var scheme: String?
     public var maxParallel: Int?
     public var timeoutSeconds: Double?
+    public var stallSeconds: Double?
+    public var linuxMode: LinuxMode?
     public var pullAlways: Bool?
     public var test: Bool?
     public var testNoParallel: Bool?
@@ -66,6 +70,8 @@ public struct SPCCConfig: Sendable {
         scheme: String? = nil,
         maxParallel: Int? = nil,
         timeoutSeconds: Double? = nil,
+        stallSeconds: Double? = nil,
+        linuxMode: LinuxMode? = nil,
         pullAlways: Bool? = nil,
         test: Bool? = nil,
         testNoParallel: Bool? = nil,
@@ -86,6 +92,8 @@ public struct SPCCConfig: Sendable {
         self.scheme = scheme
         self.maxParallel = maxParallel
         self.timeoutSeconds = timeoutSeconds
+        self.stallSeconds = stallSeconds
+        self.linuxMode = linuxMode
         self.pullAlways = pullAlways
         self.test = test
         self.testNoParallel = testNoParallel
@@ -166,13 +174,13 @@ public struct SPCCConfig: Sendable {
 
         self.scheme = reader.string(forKey: ConfigKey("scheme"))
         self.maxParallel = reader.int(forKey: ConfigKey("max_parallel"))
-        if let timeout = reader.double(forKey: ConfigKey("timeout")) {
-            self.timeoutSeconds = timeout
-        } else if let timeout = reader.int(forKey: ConfigKey("timeout")) {
-            self.timeoutSeconds = Double(timeout)
-        } else {
-            self.timeoutSeconds = nil
+        func readSeconds(_ key: String) -> Double? {
+            reader.double(forKey: ConfigKey(key)) ?? reader.int(forKey: ConfigKey(key)).map(Double.init)
         }
+        self.timeoutSeconds = readSeconds("timeout")
+        self.stallSeconds = readSeconds("stall_timeout")
+        self.linuxMode = reader.string(forKey: ConfigKey("linux_mode"))
+            .flatMap(LinuxMode.init(rawValue:))
         self.pullAlways = reader.bool(forKey: ConfigKey("pull_always"))
         self.test = reader.bool(forKey: ConfigKey("test"))
         self.testNoParallel = reader.bool(forKey: ConfigKey("test_no_parallel"))

@@ -60,25 +60,27 @@ public extension ContainerRuntime {
     /// `useRosetta` is only meaningful on container; docker emulates amd64
     /// via its own qemu path regardless. `memory` is only applied on the
     /// container path (docker has no equivalent default to override).
+    ///
+    /// `platform` is `linux/amd64` for SPI-parity cells (SPI's builders are
+    /// amd64); `nil` omits `--platform` so the image runs at the host's own
+    /// architecture (native Linux cells).
     func runArgvHead(
         cellLabel: String,
         pullPolicy: PullPolicy,
         useRosetta: Bool = false,
-        memory: String? = nil
+        memory: String? = nil,
+        platform: String? = "linux/amd64"
     ) -> [String] {
+        let platformArgs = platform.map { ["--platform", $0] } ?? []
         switch self {
         case .docker, .podman:
             return [
                 binary, "run",
                 "--pull=\(pullPolicy.rawValue)",
                 "--rm",
-                "--platform", "linux/amd64",
-            ]
+            ] + platformArgs
         case .container:
-            var head: [String] = [
-                binary, "run",
-                "--rm",
-                "--platform", "linux/amd64",
+            var head: [String] = [binary, "run", "--rm"] + platformArgs + [
                 "--name", Self.sanitiseCellName(cellLabel),
                 "-m", memory ?? Self.defaultContainerMemory,
             ]
@@ -89,14 +91,15 @@ public extension ContainerRuntime {
         }
     }
 
-    /// `<binary> image pull --platform linux/amd64 <image>` for runtimes that
+    /// `<binary> image pull [--platform <platform>] <image>` for runtimes that
     /// need an explicit pre-run pull step. Returns `nil` for docker, which
-    /// handles pulling inline via `--pull=` on `run`.
-    func pullArgv(image: String) -> [String]? {
+    /// handles pulling inline via `--pull=` on `run`. `platform` matches
+    /// ``runArgvHead(cellLabel:pullPolicy:useRosetta:memory:platform:)``.
+    func pullArgv(image: String, platform: String? = "linux/amd64") -> [String]? {
         switch self {
         case .docker, .podman: return nil
         case .container:
-            return [binary, "image", "pull", "--platform", "linux/amd64", image]
+            return [binary, "image", "pull"] + (platform.map { ["--platform", $0] } ?? []) + [image]
         }
     }
 

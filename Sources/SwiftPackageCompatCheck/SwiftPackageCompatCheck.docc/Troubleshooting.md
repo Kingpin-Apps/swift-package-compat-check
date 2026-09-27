@@ -8,8 +8,8 @@ The most common reasons, in order of frequency:
 
 1. **The badge is for an older tag.** SPI rebuilds on tag/default-branch push, but the badge image shows the latest result it has — which might be from a release before your fix landed. Compare against the package's "Builds" page at `swiftpackageindex.com/<org>/<pkg>/builds` rather than just the badge.
 2. **iOS/tvOS/watchOS deployment-target drift.** SPI respects the `platforms:` declaration in `Package.swift`. A package that declares `.iOS(.v14)` but uses `Never: Decodable` (iOS 17+) or `Date.ISO8601Format` (iOS 15+) will fail `xcodebuild` on iOS. Run `grep -nE 'error:' <logfile>` to find the exact API and SDK floor.
-3. **Linux failures specific to C interop.** SPI's `:basic-X.Y-latest` image preinstalls a curated dev-lib set — `libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev`, `libcurl4-openssl-dev`. If your package needs more, the build fails inside the container with `Could not find <library>` or `Package <pkg> was not found in the pkg-config search path`. The fix is to declare the dependency in the package's system module or add an apt step in your own custom image (`--linux-image-6.X`).
-4. **Apple Silicon vs amd64 difference.** SPI's Linux runners are amd64; `spcc` runs the same `:basic-X.Y-latest` image with `--platform linux/amd64`, so under qemu emulation on Apple Silicon. Occasionally matters for C deps with arch-specific code (e.g. blst's asm path).
+3. **Linux failures specific to C interop.** SPI's `:basic-X.Y-latest` image preinstalls a curated dev-lib set — `libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev`, `libcurl4-openssl-dev`. The official `swift:X.Y-jammy` image that native Linux cells use (the default) has none of them, so a package that links one fails natively but passes on SPI; rerun with `--linux-mode spi` to confirm. If your package needs more than SPI's set, the build fails inside the container with `Could not find <library>` or `Package <pkg> was not found in the pkg-config search path`. The fix is to declare the dependency in the package's system module or add an apt step in your own custom image (`--linux-image-6.X`).
+4. **Native arm64 vs SPI's amd64.** SPI's Linux runners are amd64. By default `spcc` builds Linux natively (arm64 on Apple Silicon), which skips x86_64-only code paths in C dependencies (e.g. blst's asm path). `--linux-mode spi` runs SPI's own `:basic-X.Y-latest` image with `--platform linux/amd64` for an exact match, under emulation on Apple Silicon.
 
 ## Scheme detection picked the wrong target
 
@@ -25,7 +25,9 @@ If detection fails entirely with `No library product backed by a regular Swift t
 
 ## A cell hangs
 
-The most common cause is qemu emulation on Apple Silicon for Android/Wasm cells, where the integrated Swift driver's stdin/stdout IPC between `swift` and `swift-frontend` gets a corrupted byte. The build then dies with:
+Container cells can't hang forever: by default each is killed after 60 minutes (`--timeout`), or after 15 minutes without any output (`--stall-timeout`), and the cell reports "timed out" or "stalled". A stall almost always means emulation: an amd64 image (`--linux-mode spi`, Android, Wasm) on Apple Silicon. SwiftPM has been seen stuck in dependency checkout at 0% CPU under emulation. Native Linux cells (the default) avoid it.
+
+The most common cause of a broken (rather than stuck) emulated build is qemu emulation on Apple Silicon for Android/Wasm cells, where the integrated Swift driver's stdin/stdout IPC between `swift` and `swift-frontend` gets a corrupted byte. The build then dies with:
 
 ```
 error: failed parsing the Swift compiler output: unexpected JSON message: {
@@ -33,13 +35,15 @@ error: failed parsing the Swift compiler output: unexpected JSON message: {
 
 `spcc` handles this automatically — its cross-SDK resolver detects this exact fingerprint and retries up to `SPCC_RETRY_MAX` times (default 2) before falling back. 
 
-When you suspect a cell is genuinely stuck (not just slow), add a timeout as a safety net:
+To tighten or loosen the limits:
 
 ```bash
-spcc run --timeout 1800   # kill any cell over 30 minutes
+spcc run --timeout 1800            # kill any container cell over 30 minutes
+spcc run --stall-timeout 300       # ...or after 5 minutes without output
+spcc run --timeout 0 --stall-timeout 0   # no limits
 ```
 
-For Docker (and Podman) cells, `--timeout` actually kills the container — `spcc` discovers it via `<runtime> ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `<runtime> kill` on the id — so it doesn't keep consuming CPU after `spcc` exits. For apple/container cells (`--container-runtime container`), the watchdog calls `container kill spcc-cell-<RUN_TS>-<platform>-<sv>` directly — the launcher sets that name on every cell because container 0.12 has no `list --filter label=`.
+For Docker (and Podman) cells, both limits actually kill the container — `spcc` discovers it via `<runtime> ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `<runtime> kill` on the id — so it doesn't keep consuming CPU after `spcc` exits. For apple/container cells (`--container-runtime container`), the watchdog calls `container kill spcc-cell-<RUN_TS>-<platform>-<sv>` directly — the launcher sets that name on every cell because container 0.12 has no `list --filter label=`.
 
 If you want to manually unstick a container `spcc` started:
 
@@ -83,6 +87,12 @@ You should see one of these in the log:
 - `Installing fallback SDK from: https://github.com/swiftwasm/...` — the resolver downloaded a fresh SDK bundle.
 
 If none of these appear AND the cell failed with "No SDK found …", file an issue — that means the resolver chain itself broke.
+
+## Every container cell fails with "ran out of disk space"
+
+`spcc` reports this when a cell's log shows `no space left on device`: the container runtime's disk filled while pulling an image or building. Nothing about your package is being tested. SPI's builder images are 5–11 GB each, and a run pulls one per Swift version. Native Linux images are smaller, but still several GB.
+
+Free space with `spcc images --remove` (SPI images), `spcc clean-all` (build volumes) and `docker system prune`, or raise the runtime's disk limit (Docker Desktop → Settings → Resources). Running fewer Swift versions at a time (`-s 6.2`) also lowers the peak.
 
 ## "Could not find executable named 'docker'"
 

@@ -99,18 +99,31 @@ Run `spcc <subcommand> --help` for the full flag list.
 
 ## What it actually runs
 
-Each cell of the matrix reproduces SPI's own Build Command panel verbatim:
+Each cell of the matrix reproduces SPI's own Build Command panel, except Linux, which by default builds natively (see below):
 
 | Platform | Command |
 |----------|---------|
-| `linux` | `docker run … spi-images:basic-X.Y-latest swift build --triple x86_64-unknown-linux-gnu` |
+| `linux` | `docker run … swift:X.Y-jammy swift build` (with `--linux-mode spi`: `docker run --platform linux/amd64 … spi-images:basic-X.Y-latest swift build --triple x86_64-unknown-linux-gnu`) |
 | `macos-spm` | `xcrun swift build --arch arm64` |
 | `macos-xcodebuild` | `xcrun xcodebuild build -scheme <s> -destination platform=macOS,arch=arm64` |
 | `ios` / `tvos` / `watchos` / `visionos` | `xcrun xcodebuild build -scheme <s> -destination generic/platform=<SDK>` |
 | `android` | `docker run … spi-images:android-X.Y-latest swift build --swift-sdk aarch64-unknown-linux-android28` |
 | `wasm` | `docker run … spi-images:wasm-X.Y-latest swift build --swift-sdk swift-X.Y-RELEASE_wasm` |
 
-Apple cells use whichever Xcode `xcode-select` points at by default. Linux / Android / Wasm cells use SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-X.Y-latest`, so the SDKs and apt packages match SPI exactly.
+Apple cells use whichever Xcode `xcode-select` points at by default. Android / Wasm cells use SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-X.Y-latest`, so the SDKs and apt packages match SPI exactly.
+
+### Linux cells: native by default
+
+SPI's Linux builders are amd64. Running SPI's amd64 image on an Apple Silicon Mac means x86_64 emulation, which is slow and can hang outright: a SwiftPM dependency checkout has been seen sitting at 0% CPU for hours. So Linux cells default to **`--linux-mode native`**: the official `swift:X.Y-jammy` image at your machine's own architecture. It's the same Swift release on the same Ubuntu, without emulation.
+
+Use **`--linux-mode spi`** (or `linux_mode = "spi"` in the config) when you need SPI's exact result: its amd64 `basic-X.Y` image, `--platform linux/amd64` and `--triple x86_64-unknown-linux-gnu`, as in earlier `spcc` versions. The run header shows which mode each run used.
+
+What native mode doesn't reproduce:
+
+- **SPI's preinstalled C libraries.** SPI's `basic` image ships `libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev` and `libcurl4-openssl-dev`; the official image doesn't. A package that links one of those builds on SPI but fails natively with `Could not find <library>`. Check it with `--linux-mode spi`, or point `--linux-image-X.Y` at an image that adds them.
+- **Architecture-specific code.** Native builds on Apple Silicon are arm64. Code with an x86_64-only path (e.g. an assembly fast path in a C dependency) is only exercised by `--linux-mode spi`.
+
+Native and SPI builds keep separate build volumes (`…-X.Y-native` vs `…-X.Y`), so arm64 and amd64 build output never mix.
 
 For full documentation including all flags, caching behaviour, and troubleshooting, see the **[`SwiftPackageCompatCheck` DocC catalog](Sources/SwiftPackageCompatCheck/SwiftPackageCompatCheck.docc/Documentation.md)**.
 
@@ -134,12 +147,12 @@ Things to know when using apple/container:
 
 - Image pulls happen as an explicit pre-step (apple/container has no `--pull` on `run`); concurrent cells share a single pull.
 - apple/container caps per-container memory at **1 GB by default**, which OOM-kills any non-toy Swift build. `spcc` raises this to 8 GB per cell so builds get a comparable allotment to Docker Desktop's VM.
-- Pair `--container-runtime container` with `--timeout` (e.g. `--timeout 1800`) when running long matrices unattended. Without a timeout, a stuck cell sits indefinitely rather than failing fast.
+- Container cells have a 60-minute limit and fail after 15 minutes without output by default (see *Limits* below), so a stuck cell fails rather than sitting indefinitely. Tune with `--timeout` / `--stall-timeout`.
 
 Podman is a Docker-compatible alternative and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill, `volume`/`images` verbs). It's a good fit for **light packages and smoke checks**, but not for heavy real-world matrices — see the caveats below. Things to know:
 
 - **Memory / concurrency.** Podman runs all cells in a **single `podman machine` VM**, and `spcc` runs the matrix cells *concurrently*, so they share that one VM's RAM (unlike apple/container, which gives each cell its own VM). `spcc` sets no per-cell cap for Podman, so a matrix of N concurrent heavy cells will OOM unless the machine has roughly N × 6 GiB. Size it with `podman machine init/set -m <MiB>` (the 2 GiB default OOMs even one real build), or serialize with `--max-parallel 1`.
-- **No Rosetta in containers → slow amd64.** Even on the `applehv` provider with `rosetta=true`, Podman does **not** mount Rosetta into `podman run --platform linux/amd64` containers, so amd64 Swift compilation runs under qemu — measured **~5–6× slower than apple/container**. Heavy packages (e.g. a full Cardano-stack build) time out at 1800s under Podman where apple/container finishes in ~5 min. Always pair Podman with `--timeout` so a slow cell fails fast instead of grinding.
+- **No Rosetta in containers → slow amd64.** This applies to Android / Wasm cells and to `--linux-mode spi`; native Linux cells run arm64 and aren't affected. Even on the `applehv` provider with `rosetta=true`, Podman does **not** mount Rosetta into `podman run --platform linux/amd64` containers, so amd64 Swift compilation runs under qemu — measured **~5–6× slower than apple/container**. Heavy packages (e.g. a full Cardano-stack build) time out at 1800s under Podman where apple/container finishes in ~5 min. Lower `--timeout` for Podman so a slow cell fails fast instead of grinding.
 - **Public-registry pulls.** If Podman inherits a `credsStore`/`credHelpers` from `~/.docker/config.json`, pulls of the *public* SPI registry can fail with a credential-helper error — bypass with an empty `REGISTRY_AUTH_FILE` (see the DocC Troubleshooting guide).
 
 ## Caches
@@ -169,7 +182,8 @@ Override the cache root with `SPI_COMPAT_CACHE=/custom/path spcc run`.
 - **Bounded concurrent fan-out** — `--max-parallel N` runs cells in parallel within each Swift version. Defaults to `activeProcessorCount / 2`.
 - **Test-dependency installs** — `--install-host` (brew, on the Mac for Apple cells) and `--install-container` (apt, inside each Linux/Android/Wasm container) pull in system packages a package's tests need — e.g. `gpg` for swift-gnupg. Applied only with `--test`. Host installs run once and **persist** on your machine; container installs are ephemeral. Both accept a comma-separated list and are validated against shell injection.
 - **Serial test execution** — `--test-no-parallel` runs each cell's tests serially (`swift test --no-parallel` / `xcodebuild test -parallel-testing-enabled NO`) for suites that share global state. Orthogonal to `--max-parallel`, which bounds how many cells run at once.
-- **Timeout safety net** — `--timeout SECONDS` kills hung containers so a stuck cell fails fast instead of blocking the run.
+- **Limits for container cells** — each Linux / Android / Wasm cell is killed after 60 minutes (`--timeout SECONDS`) or after 15 minutes without any output (`--stall-timeout SECONDS`); `0` turns either off. A hung cell fails with "timed out" or "stalled" instead of blocking the run. Apple cells have no limit.
+- **Disk-full diagnosis** — a cell that fails because the container runtime ran out of disk says so, with the cleanup commands, instead of a bare exit code.
 - **Qemu IPC retry** — the cross-SDK resolver detects transient "failed parsing the Swift compiler output" errors under qemu emulation and retries the build before falling back. Critical for Android/Wasm cells against large packages on Apple Silicon.
 - **Multi-arch bundle extraction** — when an Android SDK bundle ships multiple triples (the finagolfin/swift-android-sdk case), `spcc` extracts the specific triple matching SPI's intent rather than building for every architecture in the bundle.
 

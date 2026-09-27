@@ -73,7 +73,7 @@ This adds `xcrun --toolchain swift-6.0-RELEASE` to the `swift build` invocation.
 
 ## Per-image overrides
 
-By default `spcc` uses SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-<sv>-latest` (Swift 6.4 is pinned to `<platform>-6.4-1.33.0` until SPI publishes a `-latest` tag for it). Override per platform per Swift version when you need to pin a specific digest or test against a custom image:
+Linux cells default to the official `swift:<sv>-jammy` image, built natively (see *Linux cells: native or SPI parity* below). Android / Wasm cells, and Linux with `--linux-mode spi`, use SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-<sv>-latest` (Swift 6.4 is pinned to `<platform>-6.4-1.33.0` until SPI publishes a `-latest` tag for it). Override per platform per Swift version when you need to pin a specific digest or test against a custom image:
 
 ```bash
 spcc run --linux-image-6.3 my-registry.example/swift:6.3-jammy
@@ -105,7 +105,7 @@ What changes per platform:
 | `macos-spm` | `xcrun swift build --arch arm64` | `xcrun swift test --arch arm64` |
 | `macos-xcodebuild` | `xcodebuild build … -destination platform=macOS,arch=arm64` | `xcodebuild test …` (same destination — macOS is test-compatible) |
 | `ios` / `tvos` / `watchos` / `visionos` | `xcodebuild build … -destination generic/platform=<SDK>` | `xcodebuild test … -destination generic/platform=<SDK> Simulator` (Simulator SDK required by `xcodebuild test`) |
-| `linux` | `docker run … swift build --triple x86_64-unknown-linux-gnu` | `docker run … swift test --triple x86_64-unknown-linux-gnu` |
+| `linux` | `docker run … swift:X.Y-jammy swift build` (`--linux-mode spi`: `… --triple x86_64-unknown-linux-gnu`) | `docker run … swift test` (`--linux-mode spi`: `… --triple x86_64-unknown-linux-gnu`) |
 | `android` / `wasm` | `docker run … swift build --swift-sdk <triple>` | `docker run … swift test --swift-sdk <triple>` (SwiftPM compiles the test target but typically can't execute the binary without a target device — expect failures unless your package has cross-SDK test infrastructure) |
 
 Caveats worth knowing:
@@ -153,19 +153,35 @@ Notes worth knowing:
 - Package names differ across managers (brew `gnupg` vs apt `gnupg` happen to match, but brew `libsodium` ≈ apt `libsodium-dev`), which is why the two lists are separate rather than one shared list.
 - Names are validated to ASCII letters/digits and `. _ + -` (no leading `-`) before they're spliced into the `apt`/`brew` invocations.
 
-## Concurrency and timeouts
+## Linux cells: native or SPI parity
+
+SPI builds Linux on amd64. On an Apple Silicon Mac, SPI's amd64 image runs under emulation, which is slow and can hang (SwiftPM has been seen stuck in dependency checkout at 0% CPU). So `spcc` builds Linux cells natively by default:
+
+```bash
+spcc run -p linux                     # native: swift:X.Y-jammy at this machine's architecture
+spcc run -p linux --linux-mode spi    # SPI parity: spi-images:basic-X.Y, linux/amd64, x86_64 triple
+```
+
+Native mode is the same Swift release on the same Ubuntu, but it doesn't have SPI's preinstalled C libraries (`libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev`, `libcurl4-openssl-dev`), and on Apple Silicon it builds arm64, not x86_64. When a native result and the SPI badge disagree, rerun with `--linux-mode spi`. The two modes use separate build volumes. Set a default with `linux_mode` in <doc:Configuration>. The run header's `Linux:` line shows which mode ran.
+
+## Concurrency and limits
 
 ```bash
 # Run up to 3 cells in parallel within each Swift version
 spcc run --max-parallel 3
 
-# Kill any cell that exceeds 10 minutes; for Docker cells the container is killed by label
-spcc run --timeout 600
+# Kill any container cell over 10 minutes, or after 5 minutes without output
+spcc run --timeout 600 --stall-timeout 300
 ```
 
 `--max-parallel` defaults to `activeProcessorCount / 2`. The fan-out axis is per-Swift-version: Swift versions run sequentially (so each version's Docker image is pulled and warmed once), but platforms within a version run concurrently up to the cap.
 
-`--timeout` is a hard wall-clock budget. For container-backed cells, on timeout `spcc` actually kills the container — under Docker or Podman it discovers the container id via `<runtime> ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `<runtime> kill` on it; under apple/container it runs `container kill` against the deterministic container name set at launch. The cell is then marked `✗` with `timed out after Ns; container killed` written to the log. Apple cells (xcrun/xcodebuild) aren't covered — they rarely hang in practice, and tuist's `Command` doesn't expose the underlying `Process` for a clean kill.
+Container cells (Linux / Android / Wasm) have two limits, both on by default and both turned off with `0`:
+
+- `--timeout` (default 3600s): a hard wall-clock budget per cell.
+- `--stall-timeout` (default 900s): the cell fails once it has written no output for that long. SwiftPM prints every step, so a long silence means a hang, and this catches it well before the full budget.
+
+For container-backed cells, on timeout `spcc` actually kills the container — under Docker or Podman it discovers the container id via `<runtime> ps --filter label=spcc-cell=<RUN_TS>-<platform>-<sv> -q` and runs `<runtime> kill` on it; under apple/container it runs `container kill` against the deterministic container name set at launch. The cell is then marked `✗` with `timed out after Ns; container killed` (or `no output for Ns (stalled); container killed`) written to the log. Apple cells (xcrun/xcodebuild) aren't covered — they rarely hang in practice, and tuist's `Command` doesn't expose the underlying `Process` for a clean kill.
 
 ## Choosing the container runtime
 
@@ -177,9 +193,9 @@ spcc run --container-runtime container   # or docker, or podman
 
 Or persist it in a config file with `container_runtime = "container"` (see <doc:Configuration>). If a named runtime isn't running, `spcc` fails fast with an actionable message (e.g. "run `podman machine start`") rather than a confusing cell failure.
 
-apple/container reuses the same SPI builder images and produces identical pass/fail results in `spcc`'s smoke tests, but it hasn't been validated against as wide a range of real-world packages as Docker. Pulls happen as an explicit pre-step (deduped across concurrent cells), and `spcc` raises apple/container's 1 GB default memory cap to 8 GB per cell so non-trivial builds don't get OOM-killed. Pair it with `--timeout` when running long matrices unattended.
+apple/container reuses the same SPI builder images and produces identical pass/fail results in `spcc`'s smoke tests, but it hasn't been validated against as wide a range of real-world packages as Docker. Pulls happen as an explicit pre-step (deduped across concurrent cells), and `spcc` raises apple/container's 1 GB default memory cap to 8 GB per cell so non-trivial builds don't get OOM-killed. The default limits cover unattended runs; lower them for faster feedback.
 
-Podman is Docker-compatible and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill). It's suited to light packages and smoke checks. Two caveats make it a poor fit for heavy matrices: (1) all concurrent cells share one `podman machine` VM's RAM (`spcc` sets no per-cell cap), so a matrix OOMs unless the machine is sized for ~N × 6 GiB of concurrency — bump it with `podman machine init/set -m <MiB>` or serialize with `--max-parallel 1`; and (2) Podman does not mount Rosetta into `--platform linux/amd64` containers even on the `applehv` provider, so amd64 Swift builds run under qemu at roughly **5–6× apple/container's wall-clock** and heavy packages time out. Always pair Podman with `--timeout`.
+Podman is Docker-compatible and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill). It's suited to light packages and smoke checks. Two caveats make it a poor fit for heavy matrices: (1) all concurrent cells share one `podman machine` VM's RAM (`spcc` sets no per-cell cap), so a matrix OOMs unless the machine is sized for ~N × 6 GiB of concurrency — bump it with `podman machine init/set -m <MiB>` or serialize with `--max-parallel 1`; and (2) Podman does not mount Rosetta into `--platform linux/amd64` containers even on the `applehv` provider, so amd64 Swift builds (Android, Wasm, `--linux-mode spi`) run under qemu at roughly **5–6× apple/container's wall-clock** and heavy packages time out. Native Linux cells aren't affected.
 
 ## Output modes
 

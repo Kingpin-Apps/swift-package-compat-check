@@ -71,7 +71,14 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .customLong("toolchain-6.4"), help: "Toolchain identifier for Swift 6.4 macos-spm jobs.")
     var toolchain64: String?
 
-    @Option(name: .customLong("linux-image-6.0"), help: "Override the Linux builder image for Swift 6.0 (default: SPI's basic-6.0-latest).")
+    @Option(
+        name: .customLong("linux-mode"),
+        help: "How Linux cells build: native (default) runs the official swift:X.Y-jammy image at your machine's architecture; spi runs SPI's amd64 builder image for exact SPI parity, emulated on Apple Silicon.",
+        completion: .list(LinuxMode.allCases.map(\.rawValue))
+    )
+    var linuxModeRaw: String?
+
+    @Option(name: .customLong("linux-image-6.0"), help: "Override the Linux builder image for Swift 6.0 (default: swift:6.0-jammy, or SPI's basic-6.0 image with --linux-mode spi).")
     var linuxImage60: String?
 
     @Option(name: .customLong("linux-image-6.1"), help: "Override the Linux builder image for Swift 6.1.")
@@ -139,9 +146,15 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("timeout"),
-        help: "Per-cell wall-clock timeout in seconds. Docker containers are killed by label on timeout. Default: no timeout."
+        help: "Per-cell wall-clock timeout in seconds for Linux/Android/Wasm cells; the container is killed on timeout. Default: 3600. 0 disables."
     )
     var timeoutSeconds: Double?
+
+    @Option(
+        name: .customLong("stall-timeout"),
+        help: "Fail a Linux/Android/Wasm cell after this many seconds without any output; the container is killed. Default: 900. 0 disables."
+    )
+    var stallSeconds: Double?
 
     @Flag(
         name: [.customShort("t"), .customLong("test")],
@@ -179,6 +192,15 @@ struct RunCommand: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Suppress non-essential output.")
     var quiet: Bool = false
 
+    /// Default per-cell budget for container cells. A full Linux build of a
+    /// large package takes 10–20 minutes natively, so an hour means something
+    /// is wrong without cutting off slow but healthy builds.
+    static let defaultTimeoutSeconds: Double = 3600
+
+    /// Default silence allowed before a container cell counts as hung. SwiftPM
+    /// prints every compile step, so 15 quiet minutes is not a slow build.
+    static let defaultStallSeconds: Double = 900
+
     func run() async throws {
         let config: SPCCConfig?
         do {
@@ -190,6 +212,9 @@ struct RunCommand: AsyncParsableCommand {
         let path = pathOption ?? pathArgument
         let swiftVersions = try parseSwiftVersions(swiftRaw, config: config)
         let platforms = try parsePlatforms(platformsRaw, config: config)
+        let linuxMode = try Self.parseLinuxMode(cli: linuxModeRaw, config: config?.linuxMode)
+        let effectiveTimeout = timeoutSeconds ?? config?.timeoutSeconds ?? Self.defaultTimeoutSeconds
+        let effectiveStall = stallSeconds ?? config?.stallSeconds ?? Self.defaultStallSeconds
 
         let effectiveRunTests = runTests || (config?.test ?? false)
         // Install lists only take effect under --test (see the AskUserQuestion
@@ -262,6 +287,12 @@ struct RunCommand: AsyncParsableCommand {
             print("Versions:  \(swiftVersions.map(\.rawValue).joined(separator: ", "))")
             print("Platforms: \(platforms.map(\.rawValue).joined(separator: ", "))")
             print("Runtime:   \(runtimeLine)")
+            if platforms.contains(.linux) {
+                print("Linux:     \(Self.linuxModeLine(linuxMode))")
+            }
+            if platforms.contains(where: { [.linux, .android, .wasm].contains($0) }) {
+                print("Limits:    \(Self.limitsLine(timeout: effectiveTimeout, stall: effectiveStall))")
+            }
             print("")
         }
 
@@ -291,7 +322,9 @@ struct RunCommand: AsyncParsableCommand {
             ),
             pullAlways: pullAlways || (config?.pullAlways ?? false),
             verbose: verbose || (config?.verbose ?? false),
-            timeoutSeconds: timeoutSeconds ?? config?.timeoutSeconds,
+            timeoutSeconds: effectiveTimeout > 0 ? effectiveTimeout : nil,
+            stallSeconds: effectiveStall > 0 ? effectiveStall : nil,
+            linuxMode: linuxMode,
             runTests: effectiveRunTests,
             testNoParallel: activeTestNoParallel,
             containerRuntime: resolvedRuntime,
@@ -579,6 +612,40 @@ struct RunCommand: AsyncParsableCommand {
             return explicit.rawValue
         }
         return "auto (prefers apple/container, then docker, then podman; resolved at run time)"
+    }
+
+    /// The Linux build mode from the flag (wins), then config, then `.native`.
+    static func parseLinuxMode(cli: String?, config: LinuxMode?) throws -> LinuxMode {
+        if let cli, !cli.isEmpty {
+            guard let mode = LinuxMode(rawValue: cli) else {
+                throw ValidationError(
+                    "Unknown --linux-mode: \(cli). Allowed: \(LinuxMode.allCases.map(\.rawValue).joined(separator: ", "))."
+                )
+            }
+            return mode
+        }
+        return config ?? .native
+    }
+
+    /// The `Linux:` header line, so a native pass is never mistaken for SPI's
+    /// exact amd64 result.
+    static func linuxModeLine(_ mode: LinuxMode) -> String {
+        switch mode {
+        case .native:
+            return "native (swift:X.Y-jammy at this machine's architecture; --linux-mode spi for SPI's amd64 images)"
+        case .spi:
+            return "spi (SPI's amd64 builder images; emulated, and much slower, on Apple Silicon)"
+        }
+    }
+
+    /// The `Limits:` header line for container cells.
+    static func limitsLine(timeout: Double, stall: Double) -> String {
+        func describe(_ seconds: Double) -> String {
+            seconds.truncatingRemainder(dividingBy: 60) == 0 ? "\(Int(seconds) / 60) min" : "\(Int(seconds))s"
+        }
+        let budget = timeout > 0 ? "\(describe(timeout)) per cell" : "no time limit"
+        let quiet = stall > 0 ? "fail after \(describe(stall)) without output" : "no stall check"
+        return "\(budget), \(quiet) (--timeout / --stall-timeout; 0 disables)"
     }
 
     /// Whether `resolveContainerRuntime` will auto-detect (no explicit runtime

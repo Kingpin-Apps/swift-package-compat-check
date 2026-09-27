@@ -33,10 +33,14 @@ public actor ImagePullCoordinator {
     /// Ensure `image` is available locally according to `policy`. Throws if
     /// the underlying pull command fails. Multiple concurrent calls for the
     /// same image share a single pull task.
-    public func ensurePulled(image: String, policy: PullPolicy) async throws {
-        guard let argv = runtime.pullArgv(image: image) else { return }
+    public func ensurePulled(
+        image: String,
+        policy: PullPolicy,
+        platform: String? = "linux/amd64"
+    ) async throws {
+        guard let argv = runtime.pullArgv(image: image, platform: platform) else { return }
 
-        let cacheKey = image
+        let cacheKey = "\(platform ?? "native") \(image)"
         if policy == .missing, pulled.contains(cacheKey) {
             return
         }

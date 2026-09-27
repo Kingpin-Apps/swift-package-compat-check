@@ -41,11 +41,37 @@ struct LinuxRunnerTests {
         #expect(recorder.calls.isEmpty)
     }
 
-    @Test("linux dispatches `docker run ... swift build --triple x86_64-unknown-linux-gnu`")
-    func linuxDispatch() async {
+    @Test("by default, linux dispatches the official swift:X.Y-jammy image natively")
+    func linuxNativeDispatch() async {
         let recorder = RecordingCommandRunner()
         let runner = LinuxRunner(commandRunner: recorder)
         let (context, _) = Self.makeContext(packageBasename: "swift-nacl")
+        let pair = BuildPair(platform: .linux, swiftVersion: .v6_3)
+
+        let outcome = await runner.run(pair: pair, context: context)
+        #expect(outcome.state == .pass)
+        #expect(recorder.calls.count == 1)
+
+        let argv = recorder.calls[0].arguments
+        #expect(argv.first == "docker")
+        #expect(!argv.contains("--platform"))
+        #expect(!argv.contains("linux/amd64"))
+        #expect(argv.contains("spi-compat-build-swift-nacl-6.3-native:/build"))
+        #expect(argv.contains("swift:6.3-jammy"))
+        #expect(!argv.contains { $0.hasPrefix("JAVA_HOME=") })
+        #expect(argv.contains("SPI_BUILD=1"))
+        #expect(argv.last?.contains("swift build --scratch-path /build") == true)
+        #expect(argv.last?.contains("--triple") == false)
+    }
+
+    @Test("--linux-mode spi dispatches `docker run ... swift build --triple x86_64-unknown-linux-gnu`")
+    func linuxDispatch() async {
+        let recorder = RecordingCommandRunner()
+        let runner = LinuxRunner(commandRunner: recorder)
+        let (context, _) = Self.makeContext(
+            packageBasename: "swift-nacl",
+            options: RunOptions(linuxMode: .spi)
+        )
         let pair = BuildPair(platform: .linux, swiftVersion: .v6_3)
 
         let outcome = await runner.run(pair: pair, context: context)
@@ -75,13 +101,14 @@ struct LinuxRunnerTests {
         #expect(!recorder.calls[0].arguments.contains("--pull=missing"))
     }
 
-    @Test("--linux-image-X.Y overrides the default SPI image for that version only")
+    @Test("--linux-image-X.Y overrides the default image for that version only")
     func imageOverrideIsScopedToVersion() async {
         let recorder = RecordingCommandRunner()
         let runner = LinuxRunner(commandRunner: recorder)
         let (context, _) = Self.makeContext(
             options: RunOptions(
-                linuxImageForVersion: [.v6_3: "my-custom-image:tag"]
+                linuxImageForVersion: [.v6_3: "my-custom-image:tag"],
+                linuxMode: .spi
             )
         )
         _ = await runner.run(
@@ -105,7 +132,7 @@ struct LinuxRunnerTests {
         let runner = LinuxRunner(commandRunner: recorder)
         let (context, _) = Self.makeContext(
             packageBasename: "swift-nacl",
-            options: RunOptions(containerRuntime: .container)
+            options: RunOptions(linuxMode: .spi, containerRuntime: .container)
         )
 
         _ = await runner.run(

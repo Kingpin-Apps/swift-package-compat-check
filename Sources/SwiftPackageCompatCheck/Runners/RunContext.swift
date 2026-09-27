@@ -14,6 +14,13 @@ public struct RunOptions: Sendable {
     /// When set, container-backed runners attach a label / name and kill the
     /// container if the cell exceeds the budget.
     public var timeoutSeconds: Double?
+    /// Fail a cell whose log has not grown for this many seconds. `nil` or `0`
+    /// disables it. Catches hangs (e.g. a SwiftPM checkout stuck under x86_64
+    /// emulation) long before `timeoutSeconds` would.
+    public var stallSeconds: Double?
+    /// How Linux cells are built: natively with the official Swift image
+    /// (default) or with SPI's amd64 builder image for exact SPI parity.
+    public var linuxMode: LinuxMode
     /// When `true`, every runner replaces `swift build` with `swift test` (or
     /// `xcodebuild build` with `xcodebuild test`). xcodebuild destinations for
     /// iOS/tvOS/watchOS/visionOS shift to the matching Simulator SDK since
@@ -54,6 +61,8 @@ public struct RunOptions: Sendable {
         pullAlways: Bool = false,
         verbose: Bool = false,
         timeoutSeconds: Double? = nil,
+        stallSeconds: Double? = nil,
+        linuxMode: LinuxMode = .native,
         runTests: Bool = false,
         testNoParallel: Bool = false,
         containerRuntime: ContainerRuntime = .docker,
@@ -69,6 +78,8 @@ public struct RunOptions: Sendable {
         self.pullAlways = pullAlways
         self.verbose = verbose
         self.timeoutSeconds = timeoutSeconds
+        self.stallSeconds = stallSeconds
+        self.linuxMode = linuxMode
         self.runTests = runTests
         self.testNoParallel = testNoParallel
         self.containerRuntime = containerRuntime
@@ -86,6 +97,37 @@ public struct RunOptions: Sendable {
     /// `--pull=always` (when toggled) or `--pull=missing` (default) for docker
     /// invocations. Matches the bash script's `PULL_POLICY` default of `missing`.
     public var pullPolicy: PullPolicy { pullAlways ? .always : .missing }
+}
+
+/// How `linux` cells are built.
+///
+/// SPI's Linux builders are amd64, so `.spi` runs SPI's `basic-X.Y` image with
+/// `--platform linux/amd64` and `--triple x86_64-unknown-linux-gnu`. On Apple
+/// Silicon that means x86_64 emulation, which is slow and can hang outright
+/// (a SwiftPM checkout sat at 0% CPU for hours). `.native` runs the official
+/// `swift:X.Y-jammy` image at the host's own architecture instead: the same
+/// Swift release on the same Ubuntu, without emulation.
+public enum LinuxMode: String, Sendable, CaseIterable, Codable {
+    case native
+    case spi
+
+    /// The builder image for `swiftVersion` when no `--linux-image-X.Y`
+    /// override is given.
+    public func defaultImage(for swiftVersion: SwiftVersion) -> String? {
+        switch self {
+        case .native: return "swift:\(swiftVersion.rawValue)-jammy"
+        case .spi: return Platform.linux.defaultDockerImage(for: swiftVersion)
+        }
+    }
+
+    /// `--platform` for `run` and `image pull`: `nil` (the host's architecture)
+    /// for native builds, amd64 for SPI parity.
+    public var containerPlatform: String? {
+        switch self {
+        case .native: return nil
+        case .spi: return "linux/amd64"
+        }
+    }
 }
 
 public extension Platform {

@@ -48,13 +48,47 @@ struct LogStreamer: Sendable {
     /// stream and calls `onTimeout` if the budget is exceeded. For docker-backed
     /// runners `onTimeout` should fire `docker kill` against a container labelled
     /// with `cellLabel` — Task cancellation alone wouldn't reach the container.
+    ///
+    /// When `stallSeconds` is set, a second watchdog fails the cell (through the
+    /// same `onTimeout` kill) once the subprocess has written nothing for that
+    /// long. A hung process uses no CPU and prints nothing, so this catches it
+    /// long before the overall budget runs out.
+    ///
+    /// A failure whose log shows the container runtime ran out of disk gets a
+    /// message saying so instead of the bare exit status.
     func run(
         arguments: [String],
         environment: [String: String],
         workingDirectory: Path.AbsolutePath?,
         logPath: URL,
         timeoutSeconds: Double? = nil,
+        stallSeconds: Double? = nil,
         onTimeout: (@Sendable () async -> Void)? = nil
+    ) async -> Result {
+        let result = await runWatched(
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            logPath: logPath,
+            timeoutSeconds: timeoutSeconds,
+            stallSeconds: stallSeconds,
+            onTimeout: onTimeout
+        )
+        if case .failure(let message, let duration) = result,
+           let hint = Self.diagnosis(logPath: logPath) {
+            return .failure(message: "\(hint) (\(message))", durationSeconds: duration)
+        }
+        return result
+    }
+
+    private func runWatched(
+        arguments: [String],
+        environment: [String: String],
+        workingDirectory: Path.AbsolutePath?,
+        logPath: URL,
+        timeoutSeconds: Double?,
+        stallSeconds: Double?,
+        onTimeout: (@Sendable () async -> Void)?
     ) async -> Result {
         let fm = FileManager.default
         try? fm.createDirectory(
@@ -69,18 +103,22 @@ struct LogStreamer: Sendable {
         defer { try? logHandle.close() }
 
         let start = ContinuousClock.now
+        let timeout = timeoutSeconds.flatMap { $0 > 0 ? $0 : nil }
+        let stall = stallSeconds.flatMap { $0 > 0 ? $0 : nil }
 
-        // Fast path: no timeout configured, run the stream directly.
-        guard let timeoutSeconds, timeoutSeconds > 0 else {
+        // Fast path: no watchdog configured, run the stream directly.
+        guard timeout != nil || stall != nil else {
             return await streamUntilExit(
                 arguments: arguments,
                 environment: environment,
                 workingDirectory: workingDirectory,
                 logHandle: logHandle,
-                start: start
+                start: start,
+                activity: nil
             )
         }
 
+        let activity = OutputActivity(start: start)
         return await withTaskGroup(of: TimedRunResult.self) { group in
             group.addTask {
                 let result = await self.streamUntilExit(
@@ -88,15 +126,38 @@ struct LogStreamer: Sendable {
                     environment: environment,
                     workingDirectory: workingDirectory,
                     logHandle: logHandle,
-                    start: start
+                    start: start,
+                    activity: activity
                 )
                 return .completed(result)
             }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(timeoutSeconds))
-                if Task.isCancelled { return .timedOut(false) }
-                await onTimeout?()
-                return .timedOut(true)
+            if let timeout {
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(timeout))
+                    if Task.isCancelled { return .cancelled }
+                    await onTimeout?()
+                    return .stopped(
+                        reason: "timed out after \(Int(timeout))s",
+                        killed: onTimeout != nil
+                    )
+                }
+            }
+            if let stall {
+                group.addTask {
+                    // Check a few times per stall window, at most every 30s.
+                    let interval = min(30, max(0.05, stall / 4))
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(interval))
+                        if Task.isCancelled { return .cancelled }
+                        if await activity.idleSeconds() >= stall { break }
+                    }
+                    if Task.isCancelled { return .cancelled }
+                    await onTimeout?()
+                    return .stopped(
+                        reason: "no output for \(Int(stall))s (stalled)",
+                        killed: onTimeout != nil
+                    )
+                }
             }
             guard let first = await group.next() else {
                 group.cancelAll()
@@ -106,24 +167,56 @@ struct LogStreamer: Sendable {
             case .completed(let r):
                 group.cancelAll()
                 return r
-            case .timedOut(let killed):
+            case .stopped(let why, let killed):
                 let elapsed = Self.elapsedSeconds(since: start)
-                let reason = killed
-                    ? "timed out after \(Int(timeoutSeconds))s; container killed"
-                    : "timed out after \(Int(timeoutSeconds))s"
+                let reason = killed ? "\(why); container killed" : why
                 try? logHandle.write(contentsOf: Array("\nspcc: \(reason)\n".utf8))
                 // Cancel the streaming task BEFORE draining it — otherwise
                 // group.next() would wait the full natural duration.
                 group.cancelAll()
-                _ = await group.next()
+                while await group.next() != nil {}
                 return .failure(message: reason, durationSeconds: elapsed)
+            case .cancelled:
+                group.cancelAll()
+                return .failure(message: "watchdog cancelled", durationSeconds: Self.elapsedSeconds(since: start))
             }
         }
     }
 
     private enum TimedRunResult: Sendable {
         case completed(Result)
-        case timedOut(Bool)
+        case stopped(reason: String, killed: Bool)
+        case cancelled
+    }
+
+    /// When the subprocess last wrote anything, for the stall watchdog.
+    private actor OutputActivity {
+        private var last: ContinuousClock.Instant
+
+        init(start: ContinuousClock.Instant) { last = start }
+
+        func touch() { last = .now }
+
+        func idleSeconds() -> Double {
+            let idle = ContinuousClock.now - last
+            return Double(idle.components.seconds) + Double(idle.components.attoseconds) / 1e18
+        }
+    }
+
+    /// A plain-language cause for a failure, read from the end of its log.
+    /// Only covers causes outside the package itself; `nil` otherwise.
+    static func diagnosis(logPath: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: logPath) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 65_536 ? size - 65_536 : 0)
+        guard let data = try? handle.readToEnd(),
+              let tail = String(data: data, encoding: .utf8)?.lowercased()
+        else { return nil }
+        if tail.contains("no space left on device") {
+            return "the container runtime ran out of disk space; free some (spcc images --remove, spcc clean-all, docker system prune) or raise its disk limit"
+        }
+        return nil
     }
 
     private func streamUntilExit(
@@ -131,7 +224,8 @@ struct LogStreamer: Sendable {
         environment: [String: String],
         workingDirectory: Path.AbsolutePath?,
         logHandle: FileHandle,
-        start: ContinuousClock.Instant
+        start: ContinuousClock.Instant,
+        activity: OutputActivity?
     ) async -> Result {
         do {
             for try await event in commandRunner.run(
@@ -142,6 +236,7 @@ struct LogStreamer: Sendable {
                 switch event {
                 case .standardOutput(let bytes), .standardError(let bytes):
                     try logHandle.write(contentsOf: bytes)
+                    await activity?.touch()
                 }
             }
             return .success(durationSeconds: Self.elapsedSeconds(since: start))

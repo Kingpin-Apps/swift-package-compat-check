@@ -46,6 +46,7 @@ Each of these exists once per Swift version — substitute `6.X` with a concrete
 |------|--------|
 | `--xcode-6.X <path>` | Xcode.app to use for that version's xcodebuild cells. |
 | `--toolchain-6.X <id>` | Toolchain identifier for that version's `macos-spm` cells. |
+| `--linux-mode <mode>` | `native` (default): official `swift:X.Y-jammy` at this machine's architecture. `spi`: SPI's amd64 `basic-X.Y` image, as SPI builds it (emulated on Apple Silicon). |
 | `--linux-image-6.X <ref>` | Override the Linux builder image. |
 | `--android-image-6.X <ref>` | Override the Android builder image (6.1–6.4 only). |
 | `--wasm-image-6.X <ref>` | Override the Wasm builder image (6.1–6.4 only). |
@@ -56,7 +57,8 @@ Each of these exists once per Swift version — substitute `6.X` with a concrete
 | Flag | Effect |
 |------|--------|
 | `--max-parallel <n>` | Max cells running concurrently within each Swift version (default: `activeProcessorCount / 2`). |
-| `--timeout <seconds>` | Per-cell wall-clock timeout; hung containers are killed. Default: no timeout. |
+| `--timeout <seconds>` | Per-cell wall-clock limit for container cells; the container is killed. Default: 3600. `0` disables. |
+| `--stall-timeout <seconds>` | Fail a container cell after this long without output; the container is killed. Default: 900. `0` disables. |
 | `--container-runtime <name>` | `docker` (default), `container` (apple/container, experimental), or `podman`. Omit to auto-detect whichever is running (container → docker → podman). |
 | `--pull-always` | Pass `--pull=always` to the container runtime (default: `--pull=missing`). |
 

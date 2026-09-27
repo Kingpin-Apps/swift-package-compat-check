@@ -94,6 +94,7 @@ public struct CrossSDKRunner: Sendable {
             workingDirectory: nil,
             logPath: logPath,
             timeoutSeconds: context.options.timeoutSeconds,
+            stallSeconds: context.options.stallSeconds,
             onTimeout: { await killClosure(cellLabel) }
         )
         return result.cellOutcome(logPath: logPath)
