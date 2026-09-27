@@ -8,30 +8,34 @@ struct RunCommand: AsyncParsableCommand {
         abstract: "Run the SPI build matrix against a package."
     )
 
-    @Argument(help: "Path to the Swift package. Defaults to the current directory. Equivalent to --path.")
+    @Argument(help: "Path to the Swift package. Defaults to the current directory. Equivalent to --path.", completion: .directory)
     var pathArgument: String = "."
 
     @Option(
         name: [.customShort("P"), .customLong("path")],
-        help: "Path to the Swift package (alternative to the positional argument). Wins if both are given."
+        help: "Path to the Swift package (alternative to the positional argument). Wins if both are given.",
+        completion: .directory
     )
     var pathOption: String?
 
     @Option(
         name: [.customShort("c"), .customLong("config")],
-        help: "Path to a TOML/JSON config file with default flag values. Falls back to $SPCC_CONFIG if unset; otherwise built-in defaults are used."
+        help: "Path to a TOML/JSON config file with default flag values. Falls back to $SPCC_CONFIG if unset; otherwise built-in defaults are used.",
+        completion: .file(extensions: ["toml", "json"])
     )
     var configPath: String?
 
     @Option(
         name: [.short, .customLong("swift")],
-        help: "Comma-separated Swift versions (default: 6.0,6.1,6.2,6.3,6.4)."
+        help: "Comma-separated Swift versions (default: 6.0,6.1,6.2,6.3,6.4).",
+        completion: .commaSeparated(SwiftVersion.allCases.map(\.rawValue))
     )
     var swiftRaw: String?
 
     @Option(
         name: [.short, .customLong("platforms")],
-        help: "Comma-separated platforms (default: all)."
+        help: "Comma-separated platforms (default: all).",
+        completion: .commaSeparated(Platform.allCases.map(\.rawValue))
     )
     var platformsRaw: String?
 
@@ -41,19 +45,19 @@ struct RunCommand: AsyncParsableCommand {
     )
     var scheme: String?
 
-    @Option(name: .customLong("xcode-6.0"), help: "Xcode.app path for Swift 6.0 xcodebuild jobs.")
+    @Option(name: .customLong("xcode-6.0"), help: "Xcode.app path for Swift 6.0 xcodebuild jobs.", completion: .directory)
     var xcode60: String?
 
-    @Option(name: .customLong("xcode-6.1"), help: "Xcode.app path for Swift 6.1 xcodebuild jobs.")
+    @Option(name: .customLong("xcode-6.1"), help: "Xcode.app path for Swift 6.1 xcodebuild jobs.", completion: .directory)
     var xcode61: String?
 
-    @Option(name: .customLong("xcode-6.2"), help: "Xcode.app path for Swift 6.2 xcodebuild jobs.")
+    @Option(name: .customLong("xcode-6.2"), help: "Xcode.app path for Swift 6.2 xcodebuild jobs.", completion: .directory)
     var xcode62: String?
 
-    @Option(name: .customLong("xcode-6.3"), help: "Xcode.app path for Swift 6.3 xcodebuild jobs.")
+    @Option(name: .customLong("xcode-6.3"), help: "Xcode.app path for Swift 6.3 xcodebuild jobs.", completion: .directory)
     var xcode63: String?
 
-    @Option(name: .customLong("xcode-6.4"), help: "Xcode.app path for Swift 6.4 xcodebuild jobs.")
+    @Option(name: .customLong("xcode-6.4"), help: "Xcode.app path for Swift 6.4 xcodebuild jobs.", completion: .directory)
     var xcode64: String?
 
     @Option(name: .customLong("toolchain-6.0"), help: "Toolchain identifier for Swift 6.0 macos-spm jobs.")
@@ -134,7 +138,8 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("container-runtime"),
-        help: "Container runtime backing Linux/Android/Wasm cells: docker (default), container (apple/container), or podman. Omit to auto-detect (container → docker → podman)."
+        help: "Container runtime backing Linux/Android/Wasm cells: docker (default), container (apple/container), or podman. Omit to auto-detect (container → docker → podman).",
+        completion: .list(ContainerRuntime.allCases.map(\.rawValue))
     )
     var containerRuntimeRaw: String?
 

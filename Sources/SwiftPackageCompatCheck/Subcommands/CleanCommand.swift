@@ -7,18 +7,20 @@ struct CleanCommand: AsyncParsableCommand {
         abstract: "Remove cache volumes and logs for one package."
     )
 
-    @Argument(help: "Path to the Swift package. Defaults to the current directory. Equivalent to --path.")
+    @Argument(help: "Path to the Swift package. Defaults to the current directory. Equivalent to --path.", completion: .directory)
     var pathArgument: String = "."
 
     @Option(
         name: [.customShort("P"), .customLong("path")],
-        help: "Path to the Swift package (alternative to the positional argument). Wins if both are given."
+        help: "Path to the Swift package (alternative to the positional argument). Wins if both are given.",
+        completion: .directory
     )
     var pathOption: String?
 
     @Option(
         name: .customLong("container-runtime"),
-        help: "Container runtime whose volumes should be cleaned: docker (default), container (apple/container), or podman."
+        help: "Container runtime whose volumes should be cleaned: docker (default), container (apple/container), or podman.",
+        completion: .list(ContainerRuntime.allCases.map(\.rawValue))
     )
     var containerRuntimeRaw: String?
 
