@@ -1,9 +1,12 @@
 import Command
 import Foundation
 
-/// Runs the `android` and `wasm` cells via SPI's public builder images. Mirrors
-/// the bash script's `run_android` / `run_wasm` functions, which both delegate to
-/// the same `run_cross_sdk` core — kept as a single runner here for the same
+/// Runs the `android` and `wasm` cells. By default (``LinuxMode/native``) each
+/// cell runs the official `swift` image pinned in ``NativeCrossSDK`` at the
+/// host's architecture and installs that release's Swift SDK. With
+/// `--linux-mode spi` it uses SPI's amd64 builder images instead, mirroring
+/// the bash script's `run_android` / `run_wasm` functions, which both delegate
+/// to the same `run_cross_sdk` core — kept as a single runner here for the same
 /// reason.
 public struct CrossSDKRunner: Sendable {
     public static let supportedPlatforms: Set<Platform> = [.android, .wasm]
@@ -27,7 +30,16 @@ public struct CrossSDKRunner: Sendable {
             return CellOutcome(state: .skipped)
         }
 
-        guard let image = resolveImage(for: pair, options: context.options) else {
+        let mode = context.options.linuxMode
+        let nativeSDK = NativeCrossSDK.entry(for: pair.platform, swiftVersion: pair.swiftVersion)
+        if mode == .native, nativeSDK == nil {
+            return CellOutcome(
+                state: .fail,
+                errorMessage: "no native \(pair.platform.rawValue) Swift SDK for Swift \(pair.swiftVersion.rawValue); try --linux-mode spi"
+            )
+        }
+
+        guard let image = resolveImage(for: pair, options: context.options, nativeSDK: nativeSDK) else {
             return CellOutcome(
                 state: .fail,
                 errorMessage: "no \(pair.platform.rawValue) builder image configured for Swift \(pair.swiftVersion.rawValue)"
@@ -40,7 +52,9 @@ public struct CrossSDKRunner: Sendable {
         if let pullCoordinator {
             do {
                 try await pullCoordinator.ensurePulled(
-                    image: image, policy: context.options.pullPolicy
+                    image: image,
+                    policy: context.options.pullPolicy,
+                    platform: mode.containerPlatform
                 )
             } catch {
                 return CellOutcome(
@@ -51,8 +65,23 @@ public struct CrossSDKRunner: Sendable {
         }
 
         let arguments: [String]
-        switch pair.platform {
-        case .android:
+        switch (pair.platform, mode, nativeSDK) {
+        case (.android, .native, let sdk?), (.wasm, .native, let sdk?):
+            arguments = CrossSDKArgvBuilders.native(
+                packagePath: context.packagePath,
+                packageBasename: context.cache.packageBasename,
+                platform: pair.platform,
+                swiftVersion: pair.swiftVersion,
+                image: image,
+                sdk: sdk,
+                pullPolicy: context.options.pullPolicy,
+                cellLabel: cellLabel,
+                runTests: context.options.runTests,
+                runtime: runtime,
+                installPackages: context.options.installContainer,
+                noParallel: context.options.testNoParallel
+            )
+        case (.android, _, _):
             arguments = CrossSDKArgvBuilders.android(
                 packagePath: context.packagePath,
                 packageBasename: context.cache.packageBasename,
@@ -66,7 +95,7 @@ public struct CrossSDKRunner: Sendable {
                 installPackages: context.options.installContainer,
                 noParallel: context.options.testNoParallel
             )
-        case .wasm:
+        case (.wasm, _, _):
             arguments = CrossSDKArgvBuilders.wasm(
                 packagePath: context.packagePath,
                 packageBasename: context.cache.packageBasename,
@@ -100,7 +129,9 @@ public struct CrossSDKRunner: Sendable {
         return result.cellOutcome(logPath: logPath)
     }
 
-    private func resolveImage(for pair: BuildPair, options: RunOptions) -> String? {
+    private func resolveImage(
+        for pair: BuildPair, options: RunOptions, nativeSDK: NativeCrossSDK?
+    ) -> String? {
         let override: String?
         switch pair.platform {
         case .android: override = options.androidImageForVersion[pair.swiftVersion]
@@ -108,6 +139,7 @@ public struct CrossSDKRunner: Sendable {
         default: override = nil
         }
         if let override, !override.isEmpty { return override }
+        if options.linuxMode == .native { return nativeSDK?.image }
         return pair.platform.defaultDockerImage(for: pair.swiftVersion)
     }
 }

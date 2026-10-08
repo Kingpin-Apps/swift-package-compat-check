@@ -1,8 +1,17 @@
 import Foundation
 
-/// Pure argv constructors for the Android + Wasm docker invocations. Both platforms
-/// share the same `run_cross_sdk` shape from `spi-compat-check.sh`: a docker run
-/// against an SPI builder image whose body is a bash resolver that
+/// Pure argv constructors for the Android + Wasm docker invocations.
+///
+/// ``native(packagePath:packageBasename:platform:swiftVersion:image:sdk:pullPolicy:cellLabel:runTests:runtime:installPackages:noParallel:)``
+/// (the default, ``LinuxMode/native``) runs an official `swift` image at the
+/// host's architecture and installs a pinned ``NativeCrossSDK`` into a shared
+/// cache volume.
+///
+/// ``android(packagePath:packageBasename:swiftVersion:image:pullPolicy:cellLabel:runTests:runtime:useRosetta:installPackages:noParallel:)``
+/// and ``wasm(packagePath:packageBasename:swiftVersion:image:pullPolicy:fallbackURL:cellLabel:runTests:runtime:useRosetta:installPackages:noParallel:)``
+/// (``LinuxMode/spi``) share the `run_cross_sdk` shape from
+/// `spi-compat-check.sh`: a docker run against an SPI builder image whose body
+/// is a bash resolver that
 ///
 ///   1. tries the SPI-verbatim `--swift-sdk <name>` (fast path)
 ///   2. falls back to runtime `swift sdk list` matching by SDK_MATCH + compiler version
@@ -14,15 +23,159 @@ public enum CrossSDKArgvBuilders {
     public static let packageMountPath = LinuxArgvBuilders.packageMountPath
     public static let scratchMountPath = LinuxArgvBuilders.scratchMountPath
 
-    /// Per-`(package, platform, swift-version)` volume so cross-SDK runs don't
-    /// share `/build` state with Linux or each other.
+    /// Per-`(package, platform, swift-version, mode)` volume so cross-SDK runs
+    /// don't share `/build` state with Linux or each other. Native volumes get a
+    /// `-native` suffix, as Linux's do: arm64 products must never be reused by
+    /// an amd64 SPI build.
     public static func volumeName(
         packageBasename: String,
         platform: Platform,
-        swiftVersion: SwiftVersion
+        swiftVersion: SwiftVersion,
+        mode: LinuxMode = .spi
     ) -> String {
-        "spi-compat-build-\(packageBasename)-\(platform.rawValue)-\(swiftVersion.rawValue)"
+        let base = "spi-compat-build-\(packageBasename)-\(platform.rawValue)-\(swiftVersion.rawValue)"
+        return mode == .native ? base + "-native" : base
     }
+
+    /// Volume shared by every native cross-SDK cell: downloaded SDK archives,
+    /// the extracted NDK sysroot, and SDKs installed per compiler version. The
+    /// `spi-compat` prefix puts it under `list-caches` and `clean-all`.
+    public static let sdkCacheVolume = "spi-compat-sdk-cache"
+
+    /// Mount point of ``sdkCacheVolume`` inside the container.
+    public static let sdkCacheMountPath = "/sdk-cache"
+
+    /// The `<runtime> run ...` argv for a native (``LinuxMode/native``) Android
+    /// or Wasm cell: `image` (normally `sdk.image`) at the host's architecture,
+    /// which installs `sdk` into the shared cache volume once and builds with it.
+    public static func native(
+        packagePath: URL,
+        packageBasename: String,
+        platform: Platform,
+        swiftVersion: SwiftVersion,
+        image: String,
+        sdk: NativeCrossSDK,
+        pullPolicy: PullPolicy,
+        cellLabel: String? = nil,
+        runTests: Bool = false,
+        runtime: ContainerRuntime = .docker,
+        installPackages: [String] = [],
+        noParallel: Bool = false
+    ) -> [String] {
+        let volume = volumeName(
+            packageBasename: packageBasename,
+            platform: platform,
+            swiftVersion: swiftVersion,
+            mode: .native
+        )
+        var argv: [String] = runtime.runArgvHead(
+            cellLabel: cellLabel ?? "",
+            pullPolicy: pullPolicy,
+            platform: LinuxMode.native.containerPlatform
+        )
+        argv.append(contentsOf: [
+            "-v", "\(packagePath.path):\(packageMountPath)",
+            "-w", packageMountPath,
+            "-v", "\(volume):\(scratchMountPath)",
+            "-v", "\(sdkCacheVolume):\(sdkCacheMountPath)",
+            "-e", "SPI_BUILD=1",
+            "-e", "SPI_PROCESSING=1",
+            "-e", "SDK_URL=\(sdk.sdkURL)",
+            "-e", "SDK_SHA256=\(sdk.sdkSHA256)",
+            "-e", "SDK_ID=\(sdk.sdkID)",
+            "-e", "SDK_SELECTOR=\(sdk.sdkSelector)",
+            "-e", "NDK_URL=\(sdk.ndk?.url ?? "")",
+            "-e", "NDK_SHA256=\(sdk.ndk?.sha256 ?? "")",
+            "-e", "NDK_DIR=\(sdk.ndk?.directory ?? "")",
+            "-e", "SDK_ACTION=\(runTests ? "test" : "build")",
+            "-e", "SDK_TEST_ARGS=\((runTests && noParallel) ? "--no-parallel" : "")",
+        ])
+        if let label = cellLabel {
+            argv.append(contentsOf: ["--label", "spcc-cell=\(label)"])
+        }
+        argv.append(image)
+        let install = ContainerInstall.aptPreamble(packages: installPackages)
+        argv.append(contentsOf: ["bash", "-c", install + nativeResolverScript])
+        return argv
+    }
+
+    /// Installs the SDK (and, for Android, the parts of the NDK it links
+    /// against) into the shared cache under a lock, then builds. The official images
+    /// have no `curl`, so downloads go through `python3`; every archive is
+    /// checked against its SHA-256 before use. SDKs install under a directory
+    /// per compiler version, so `--swift-sdk <triple>` can never pick up a
+    /// bundle built for another compiler.
+    static let nativeResolverScript: String = #"""
+        set -euo pipefail
+        swift --version
+
+        cache=/sdk-cache
+        compiler_v="$(swift --version 2>/dev/null | head -1 | awk '/Swift version/ {print $3}')"
+        sdks="$cache/swift-sdks/$compiler_v"
+        mkdir -p "$cache/downloads" "$sdks"
+
+        fetch() {
+          local url="$1" sha="$2" out="$3"
+          if [[ -f "$out" ]] && echo "$sha  $out" | sha256sum -c --status; then
+            echo "Using cached $(basename "$out")"
+            return 0
+          fi
+          echo "Downloading $url"
+          python3 - "$url" "$out.part" <<'PY'
+        import shutil, sys, urllib.request
+        with urllib.request.urlopen(sys.argv[1]) as r, open(sys.argv[2], "wb") as f:
+            shutil.copyfileobj(r, f, 1 << 20)
+        PY
+          if ! echo "$sha  $out.part" | sha256sum -c --status; then
+            echo "ERROR: checksum mismatch for $url (expected $sha, got $(sha256sum "$out.part" | cut -d' ' -f1))"
+            rm -f "$out.part"
+            return 1
+          fi
+          mv "$out.part" "$out"
+        }
+
+        (
+          flock 9
+          if [[ -n "$NDK_DIR" && ! -f "$cache/$NDK_DIR/.spcc-complete" ]]; then
+            zip="$cache/downloads/$(basename "$NDK_URL")"
+            fetch "$NDK_URL" "$NDK_SHA256" "$zip"
+            echo "Extracting the NDK sysroot, clang resources and metadata"
+            rm -rf "$cache/$NDK_DIR" "$cache/$NDK_DIR.part"
+            mkdir -p "$cache/$NDK_DIR.part"
+            unzip -q "$zip" "$NDK_DIR/source.properties" "$NDK_DIR/meta/*" \
+              "$NDK_DIR/toolchains/llvm/prebuilt/*/sysroot/*" \
+              "$NDK_DIR/toolchains/llvm/prebuilt/*/lib/clang/*" \
+              -d "$cache/$NDK_DIR.part"
+            # Swift Build (SwiftPM's default from 6.4) links with the NDK's
+            # ld.lld, an x86_64 binary; point it at the image's own lld.
+            for prebuilt in "$cache/$NDK_DIR.part/$NDK_DIR"/toolchains/llvm/prebuilt/*; do
+              mkdir -p "$prebuilt/bin"
+              ln -s /usr/bin/ld.lld "$prebuilt/bin/ld.lld"
+            done
+            touch "$cache/$NDK_DIR.part/$NDK_DIR/.spcc-complete"
+            mv "$cache/$NDK_DIR.part/$NDK_DIR" "$cache/$NDK_DIR"
+            rm -rf "$cache/$NDK_DIR.part" "$zip"
+          fi
+          if ! swift sdk list --swift-sdks-path "$sdks" 2>/dev/null | grep -qx "$SDK_ID"; then
+            archive="$cache/downloads/$(basename "$SDK_URL")"
+            fetch "$SDK_URL" "$SDK_SHA256" "$archive"
+            swift sdk install "$archive" --swift-sdks-path "$sdks"
+            rm -f "$archive"
+            if [[ -n "$NDK_DIR" ]]; then
+              find "$sdks" -path '*/scripts/setup-android-sdk.sh' -print0 \
+                | xargs -0 -r -n1 env ANDROID_NDK_HOME="$cache/$NDK_DIR" bash
+            fi
+          fi
+        ) 9>"$cache/.lock"
+
+        # Swift Build finds the NDK through ANDROID_NDK_HOME when it builds.
+        if [[ -n "$NDK_DIR" ]]; then
+          export ANDROID_NDK_HOME="$cache/$NDK_DIR"
+        fi
+
+        echo "Using SDK: $SDK_ID ($SDK_SELECTOR)"
+        swift "${SDK_ACTION:-build}" ${SDK_TEST_ARGS:-} --swift-sdks-path "$sdks" --swift-sdk "$SDK_SELECTOR" --scratch-path /build
+        """#
 
     public static func android(
         packagePath: URL,

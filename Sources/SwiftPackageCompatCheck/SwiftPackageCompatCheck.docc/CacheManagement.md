@@ -27,9 +27,12 @@ Plus Docker named volumes (which don't live under the cache root — `spcc` does
 
 | Volume name | Used by | Holds |
 |---|---|---|
-| `spi-compat-build-<pkg>-<sv>` | Linux runner | `--scratch-path /build` for `swift build` |
-| `spi-compat-build-<pkg>-android-<sv>` | Android runner | Same, per-platform |
-| `spi-compat-build-<pkg>-wasm-<sv>` | Wasm runner | Same, plus the downloaded fallback SDK at `/build/sdk-cache` |
+| `spi-compat-build-<pkg>-<sv>[-native]` | Linux runner | `--scratch-path /build` for `swift build` |
+| `spi-compat-build-<pkg>-android-<sv>[-native]` | Android runner | Same, per-platform |
+| `spi-compat-build-<pkg>-wasm-<sv>[-native]` | Wasm runner | Same; in `--linux-mode spi`, also the downloaded fallback SDK at `/build/sdk-cache` |
+| `spi-compat-sdk-cache` | Native Android / Wasm runners | Swift SDKs installed per compiler version, the Android NDK parts they link against, and in-progress downloads. Shared by every package. `clean-all` removes it; `clean <pkg>` leaves it. |
+
+The `-native` suffix marks native-mode volumes (the default); SPI-mode volumes have none, so arm64 and amd64 build output never mix.
 
 ## Why the Docker volumes matter
 

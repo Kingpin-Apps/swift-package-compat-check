@@ -77,7 +77,7 @@ struct RunCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("linux-mode"),
-        help: "How Linux cells build: native (default) runs the official swift:X.Y-jammy image at your machine's architecture; spi runs SPI's amd64 builder image for exact SPI parity, emulated on Apple Silicon.",
+        help: "How container cells (linux, android, wasm) build: native (default) runs the official swift image at your machine's architecture, with the official Android/Wasm Swift SDKs; spi runs SPI's amd64 builder images for exact SPI parity, emulated on Apple Silicon (SPI's registry no longer allows anonymous pulls).",
         completion: .list(LinuxMode.allCases.map(\.rawValue))
     )
     var linuxModeRaw: String?
@@ -292,10 +292,8 @@ struct RunCommand: AsyncParsableCommand {
             print("Versions:  \(swiftVersions.map(\.rawValue).joined(separator: ", "))")
             print("Platforms: \(platforms.map(\.rawValue).joined(separator: ", "))")
             print("Runtime:   \(runtimeLine)")
-            if platforms.contains(.linux) {
-                print("Linux:     \(Self.linuxModeLine(linuxMode))")
-            }
             if platforms.contains(where: { [.linux, .android, .wasm].contains($0) }) {
+                print("Linux:     \(Self.linuxModeLine(linuxMode))")
                 print("Limits:    \(Self.limitsLine(timeout: effectiveTimeout, stall: effectiveStall))")
             }
             print("")
@@ -637,9 +635,9 @@ struct RunCommand: AsyncParsableCommand {
     static func linuxModeLine(_ mode: LinuxMode) -> String {
         switch mode {
         case .native:
-            return "native (swift:X.Y-jammy at this machine's architecture; --linux-mode spi for SPI's amd64 images)"
+            return "native (official swift images and Android/Wasm SDKs at this machine's architecture; --linux-mode spi for SPI's amd64 images)"
         case .spi:
-            return "spi (SPI's amd64 builder images; emulated, and much slower, on Apple Silicon)"
+            return "spi (SPI's amd64 builder images for linux, android and wasm; emulated, and much slower, on Apple Silicon)"
         }
     }
 

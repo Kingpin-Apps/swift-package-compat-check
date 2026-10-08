@@ -99,7 +99,7 @@ Run `spcc <subcommand> --help` for the full flag list.
 
 ## What it actually runs
 
-Each cell of the matrix reproduces SPI's own Build Command panel, except Linux, which by default builds natively (see below):
+Each cell of the matrix reproduces SPI's own Build Command panel, except the container cells (Linux, Android, Wasm), which by default build natively (see below):
 
 | Platform | Command |
 |----------|---------|
@@ -107,16 +107,29 @@ Each cell of the matrix reproduces SPI's own Build Command panel, except Linux, 
 | `macos-spm` | `xcrun swift build --arch arm64` |
 | `macos-xcodebuild` | `xcrun xcodebuild build -scheme <s> -destination platform=macOS,arch=arm64` |
 | `ios` / `tvos` / `watchos` / `visionos` | `xcrun xcodebuild build -scheme <s> -destination generic/platform=<SDK>` |
-| `android` | `docker run … spi-images:android-X.Y-latest swift build --swift-sdk aarch64-unknown-linux-android28` |
-| `wasm` | `docker run … spi-images:wasm-X.Y-latest swift build --swift-sdk swift-X.Y-RELEASE_wasm` |
+| `android` | `docker run … swift:X.Y.Z-jammy swift build --swift-sdk aarch64-unknown-linux-android28` with the official Android Swift SDK (with `--linux-mode spi`: `… spi-images:android-X.Y-latest …`) |
+| `wasm` | `docker run … swift:X.Y.Z-jammy swift build --swift-sdk swift-X.Y.Z-RELEASE_wasm` with the official Wasm Swift SDK (with `--linux-mode spi`: `… spi-images:wasm-X.Y-latest …`) |
 
-Apple cells use whichever Xcode `xcode-select` points at by default. Android / Wasm cells use SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-X.Y-latest`, so the SDKs and apt packages match SPI exactly.
+Apple cells use whichever Xcode `xcode-select` points at by default.
 
-### Linux cells: native by default
+### Container cells: native by default
 
-SPI's Linux builders are amd64. Running SPI's amd64 image on an Apple Silicon Mac means x86_64 emulation, which is slow and can hang outright: a SwiftPM dependency checkout has been seen sitting at 0% CPU for hours. So Linux cells default to **`--linux-mode native`**: the official `swift:X.Y-jammy` image at your machine's own architecture. It's the same Swift release on the same Ubuntu, without emulation.
+SPI's Linux builders are amd64. Running SPI's amd64 image on an Apple Silicon Mac means x86_64 emulation, which is slow and can hang outright: a SwiftPM dependency checkout has been seen sitting at 0% CPU for hours. So container cells default to **`--linux-mode native`**: the official `swift` image at your machine's own architecture. It's the same Swift release on the same Ubuntu, without emulation.
 
-Use **`--linux-mode spi`** (or `linux_mode = "spi"` in the config) when you need SPI's exact result: its amd64 `basic-X.Y` image, `--platform linux/amd64` and `--triple x86_64-unknown-linux-gnu`, as in earlier `spcc` versions. The run header shows which mode each run used.
+Android and Wasm cells run the official image pinned to the exact patch release their Swift SDK was built for (a Swift SDK only works with that compiler), and install the SDK on first use:
+
+| Swift | Android SDK | Wasm SDK |
+|-------|-------------|----------|
+| 6.1 | [finagolfin/swift-android-sdk](https://github.com/finagolfin/swift-android-sdk) 6.1.3 | [swiftwasm](https://github.com/swiftwasm/swift) 6.1 |
+| 6.2 | finagolfin/swift-android-sdk 6.2 | swift.org 6.2.4 |
+| 6.3 | swift.org 6.3.3 | swift.org 6.3.3 |
+| 6.4 | swift.org 6.4.0 | swift.org 6.4.0 |
+
+Every download is checked against a pinned SHA-256. Android SDKs also need the Android NDK (r27d); `spcc` extracts only the parts the SDK uses, so Google's x86_64-only Linux NDK works on arm64 too. SDKs, the NDK and downloads live in one shared Docker volume, `spi-compat-sdk-cache`, so only the first cell pays for them. Installed, each Swift version takes about 1.5 GB (Android ~1.2 GB, Wasm ~0.4 GB), plus 750 MB for the NDK: about 6.6 GB for 6.1–6.4. `spcc clean-all` removes it.
+
+Use **`--linux-mode spi`** (or `linux_mode = "spi"` in the config) when you need SPI's exact result: its amd64 `basic`, `android` and `wasm` images, `--platform linux/amd64` and (for Linux) `--triple x86_64-unknown-linux-gnu`, as in earlier `spcc` versions. The run header shows which mode each run used.
+
+> **Note (October 2026):** `registry.gitlab.com/swiftpackageindex/spi-images` no longer allows anonymous pulls, so `--linux-mode spi` only works with images you already have, or with `--linux-image-X.Y` / `--android-image-X.Y` / `--wasm-image-X.Y` pointing at images you can pull. A refused pull fails the cell with a message saying so.
 
 What native mode doesn't reproduce:
 
@@ -184,8 +197,9 @@ Override the cache root with `SPI_COMPAT_CACHE=/custom/path spcc run`.
 - **Serial test execution** — `--test-no-parallel` runs each cell's tests serially (`swift test --no-parallel` / `xcodebuild test -parallel-testing-enabled NO`) for suites that share global state. Orthogonal to `--max-parallel`, which bounds how many cells run at once.
 - **Limits for container cells** — each Linux / Android / Wasm cell is killed after 60 minutes (`--timeout SECONDS`) or after 15 minutes without any output (`--stall-timeout SECONDS`); `0` turns either off. A hung cell fails with "timed out" or "stalled" instead of blocking the run. Apple cells have no limit.
 - **Disk-full diagnosis** — a cell that fails because the container runtime ran out of disk says so, with the cleanup commands, instead of a bare exit code.
-- **Qemu IPC retry** — the cross-SDK resolver detects transient "failed parsing the Swift compiler output" errors under qemu emulation and retries the build before falling back. Critical for Android/Wasm cells against large packages on Apple Silicon.
-- **Multi-arch bundle extraction** — when an Android SDK bundle ships multiple triples (the finagolfin/swift-android-sdk case), `spcc` extracts the specific triple matching SPI's intent rather than building for every architecture in the bundle.
+- **Native Android / Wasm** — official Swift SDKs on the official image, at your machine's architecture, cached in one shared volume (see *Container cells: native by default*).
+- **Qemu IPC retry** (`--linux-mode spi`) — the SPI-image resolver detects transient "failed parsing the Swift compiler output" errors under qemu emulation and retries the build before falling back.
+- **Single-triple builds** — when an Android SDK bundle ships multiple triples, `spcc` builds the one triple matching SPI's intent rather than every architecture in the bundle.
 
 ---
 

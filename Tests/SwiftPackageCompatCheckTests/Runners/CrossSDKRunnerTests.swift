@@ -54,11 +54,13 @@ struct CrossSDKRunnerTests {
         #expect(recorder.calls.isEmpty)
     }
 
-    @Test("android dispatches docker with the SPI android image")
+    @Test("--linux-mode spi: android dispatches docker with the SPI android image")
     func androidDispatch() async {
         let recorder = RecordingCommandRunner()
         let runner = CrossSDKRunner(commandRunner: recorder)
-        let (context, _) = Self.makeContext(packageBasename: "swift-nacl")
+        let (context, _) = Self.makeContext(
+            packageBasename: "swift-nacl", options: RunOptions(linuxMode: .spi)
+        )
 
         let outcome = await runner.run(
             pair: BuildPair(platform: .android, swiftVersion: .v6_3),
@@ -72,11 +74,11 @@ struct CrossSDKRunnerTests {
         #expect(argv.contains("spi-compat-build-swift-nacl-android-6.3:/build"))
     }
 
-    @Test("wasm dispatches with the SPI wasm image + default fallback URL")
+    @Test("--linux-mode spi: wasm dispatches with the SPI wasm image + default fallback URL")
     func wasmDispatchUsesDefaults() async {
         let recorder = RecordingCommandRunner()
         let runner = CrossSDKRunner(commandRunner: recorder)
-        let (context, _) = Self.makeContext()
+        let (context, _) = Self.makeContext(options: RunOptions(linuxMode: .spi))
 
         _ = await runner.run(
             pair: BuildPair(platform: .wasm, swiftVersion: .v6_3),
@@ -89,14 +91,15 @@ struct CrossSDKRunnerTests {
         #expect(argv.contains { $0.hasPrefix("SDK_FALLBACK_URL=https://github.com/swiftwasm") })
     }
 
-    @Test("--android-image-X.Y / --wasm-image-X.Y overrides are scoped to their version")
+    @Test("--linux-mode spi: --android-image-X.Y / --wasm-image-X.Y overrides are scoped to their version")
     func imageOverridesScoped() async {
         let recorder = RecordingCommandRunner()
         let runner = CrossSDKRunner(commandRunner: recorder)
         let (context, _) = Self.makeContext(
             options: RunOptions(
                 androidImageForVersion: [.v6_3: "my-android-image"],
-                wasmImageForVersion: [.v6_2: "my-wasm-image"]
+                wasmImageForVersion: [.v6_2: "my-wasm-image"],
+                linuxMode: .spi
             )
         )
 
@@ -120,13 +123,14 @@ struct CrossSDKRunnerTests {
         #expect(recorder.calls[2].arguments.contains("my-wasm-image"))
     }
 
-    @Test("--wasm-sdk-url-X.Y override beats the default swiftwasm URL")
+    @Test("--linux-mode spi: --wasm-sdk-url-X.Y override beats the default swiftwasm URL")
     func wasmSDKURLOverride() async {
         let recorder = RecordingCommandRunner()
         let runner = CrossSDKRunner(commandRunner: recorder)
         let (context, _) = Self.makeContext(
             options: RunOptions(
-                wasmSDKURLForVersion: [.v6_3: "https://internal.example/sdk.zip"]
+                wasmSDKURLForVersion: [.v6_3: "https://internal.example/sdk.zip"],
+                linuxMode: .spi
             )
         )
 
@@ -139,12 +143,12 @@ struct CrossSDKRunnerTests {
         ))
     }
 
-    @Test("runtime=.container: android dispatches `container run` with --name, no --pull")
+    @Test("--linux-mode spi, runtime=.container: android dispatches `container run` with --name, no --pull")
     func androidContainerRuntime() async {
         let recorder = RecordingCommandRunner()
         let runner = CrossSDKRunner(commandRunner: recorder)
         let (context, _) = Self.makeContext(
-            options: RunOptions(containerRuntime: .container)
+            options: RunOptions(linuxMode: .spi, containerRuntime: .container)
         )
         _ = await runner.run(
             pair: BuildPair(platform: .android, swiftVersion: .v6_3),
@@ -156,5 +160,58 @@ struct CrossSDKRunnerTests {
         #expect(argv.contains("--name"))
         #expect(argv.contains("spcc-cell-20260606T120000-android-6.3"))
         #expect(argv.contains("SDK_BUILD_ARG=aarch64-unknown-linux-android28"))
+    }
+    @Test("native (default): android runs the pinned official image with its SDK, at the host's architecture")
+    func nativeAndroidDispatch() async {
+        let recorder = RecordingCommandRunner()
+        let runner = CrossSDKRunner(commandRunner: recorder)
+        let (context, _) = Self.makeContext(packageBasename: "swift-nacl")
+
+        let outcome = await runner.run(
+            pair: BuildPair(platform: .android, swiftVersion: .v6_3),
+            context: context
+        )
+        #expect(outcome.state == .pass)
+        let argv = recorder.calls[0].arguments
+        let sdk = NativeCrossSDK.entry(for: .android, swiftVersion: .v6_3)!
+        #expect(argv.contains(sdk.image))
+        #expect(!argv.contains("--platform"))
+        #expect(!argv.contains { $0.contains("swiftpackageindex/spi-images") })
+        #expect(argv.contains("SDK_SELECTOR=aarch64-unknown-linux-android28"))
+        #expect(argv.contains("spi-compat-build-swift-nacl-android-6.3-native:/build"))
+        #expect(argv.contains("spi-compat-sdk-cache:/sdk-cache"))
+    }
+
+    @Test("native: an --android-image-X.Y override still replaces the pinned image")
+    func nativeImageOverride() async {
+        let recorder = RecordingCommandRunner()
+        let runner = CrossSDKRunner(commandRunner: recorder)
+        let (context, _) = Self.makeContext(
+            options: RunOptions(androidImageForVersion: [.v6_3: "my-android-image"])
+        )
+        _ = await runner.run(
+            pair: BuildPair(platform: .android, swiftVersion: .v6_3),
+            context: context
+        )
+        let argv = recorder.calls[0].arguments
+        #expect(argv.contains("my-android-image"))
+        #expect(argv.contains { $0.hasPrefix("SDK_URL=https://download.swift.org/") })
+    }
+
+    @Test("native on apple/container pre-pulls at the host's architecture, not linux/amd64")
+    func nativeContainerPull() async {
+        let recorder = RecordingCommandRunner()
+        let runner = CrossSDKRunner(
+            commandRunner: recorder,
+            pullCoordinator: ImagePullCoordinator(runtime: .container, runner: recorder)
+        )
+        let (context, _) = Self.makeContext(options: RunOptions(containerRuntime: .container))
+        _ = await runner.run(
+            pair: BuildPair(platform: .wasm, swiftVersion: .v6_4),
+            context: context
+        )
+        let pull = recorder.calls[0].arguments
+        #expect(pull == ["container", "image", "pull", "swift:6.4.0-jammy"])
+        #expect(!recorder.calls[1].arguments.contains("--platform"))
     }
 }

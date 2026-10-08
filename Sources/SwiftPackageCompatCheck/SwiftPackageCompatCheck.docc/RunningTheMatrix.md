@@ -73,7 +73,7 @@ This adds `xcrun --toolchain swift-6.0-RELEASE` to the `swift build` invocation.
 
 ## Per-image overrides
 
-Linux cells default to the official `swift:<sv>-jammy` image, built natively (see *Linux cells: native or SPI parity* below). Android / Wasm cells, and Linux with `--linux-mode spi`, use SPI's own publicly-hosted builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-<sv>-latest` (Swift 6.4 is pinned to `<platform>-6.4-1.33.0` until SPI publishes a `-latest` tag for it). Override per platform per Swift version when you need to pin a specific digest or test against a custom image:
+Container cells default to official `swift` images, built natively (see *Container cells: native or SPI parity* below): Linux uses `swift:<sv>-jammy`, and Android / Wasm use the exact patch release their Swift SDK targets (e.g. `swift:6.3.3-jammy`). With `--linux-mode spi`, all three use SPI's builder images at `registry.gitlab.com/swiftpackageindex/spi-images:<platform>-<sv>-latest` (Swift 6.4 is pinned to `<platform>-6.4-1.33.0`). Override per platform per Swift version when you need to pin a specific digest or test against a custom image:
 
 ```bash
 spcc run --linux-image-6.3 my-registry.example/swift:6.3-jammy
@@ -81,9 +81,9 @@ spcc run --android-image-6.2 registry.gitlab.com/.../spi-images@sha256:abc...
 spcc run --wasm-image-6.1 alternate-wasm-image:tag
 ```
 
-The Android and Wasm override flags exist for Swift 6.1–6.4 only — SPI doesn't run those platforms against Swift 6.0, so there's no cell to override.
+The Android and Wasm override flags exist for Swift 6.1–6.4 only — SPI doesn't run those platforms against Swift 6.0, so there's no cell to override. In native mode an Android/Wasm override replaces only the image; `spcc` still installs its pinned SDK, so the image must have that SDK's exact compiler.
 
-For wasm specifically, the cross-SDK resolver inside the container falls back to downloading and installing a Wasm SDK artifact bundle when the image's bundled SDK doesn't match. The default fallback URLs are the upstream swiftwasm release builds for 6.1–6.3 and the official swift.org SDK for 6.4; override per Swift version:
+In `--linux-mode spi`, for wasm specifically, the cross-SDK resolver inside the container falls back to downloading and installing a Wasm SDK artifact bundle when the image's bundled SDK doesn't match. The default fallback URLs are the upstream swiftwasm release builds for 6.1–6.3 and the official swift.org SDK for 6.4; override per Swift version:
 
 ```bash
 spcc run --wasm-sdk-url-6.3 https://internal.example/sdk.zip
@@ -106,7 +106,7 @@ What changes per platform:
 | `macos-xcodebuild` | `xcodebuild build … -destination platform=macOS,arch=arm64` | `xcodebuild test …` (same destination — macOS is test-compatible) |
 | `ios` / `tvos` / `watchos` / `visionos` | `xcodebuild build … -destination generic/platform=<SDK>` | `xcodebuild test … -destination generic/platform=<SDK> Simulator` (Simulator SDK required by `xcodebuild test`) |
 | `linux` | `docker run … swift:X.Y-jammy swift build` (`--linux-mode spi`: `… --triple x86_64-unknown-linux-gnu`) | `docker run … swift test` (`--linux-mode spi`: `… --triple x86_64-unknown-linux-gnu`) |
-| `android` / `wasm` | `docker run … swift build --swift-sdk <triple>` | `docker run … swift test --swift-sdk <triple>` (SwiftPM compiles the test target but typically can't execute the binary without a target device — expect failures unless your package has cross-SDK test infrastructure) |
+| `android` / `wasm` | `docker run … swift build --swift-sdks-path /sdk-cache/… --swift-sdk <sdk>` | `docker run … swift test --swift-sdk <sdk>` (SwiftPM compiles the test target but typically can't execute the binary without a target device — expect failures unless your package has cross-SDK test infrastructure) |
 
 Caveats worth knowing:
 
@@ -153,16 +153,20 @@ Notes worth knowing:
 - Package names differ across managers (brew `gnupg` vs apt `gnupg` happen to match, but brew `libsodium` ≈ apt `libsodium-dev`), which is why the two lists are separate rather than one shared list.
 - Names are validated to ASCII letters/digits and `. _ + -` (no leading `-`) before they're spliced into the `apt`/`brew` invocations.
 
-## Linux cells: native or SPI parity
+## Container cells: native or SPI parity
 
-SPI builds Linux on amd64. On an Apple Silicon Mac, SPI's amd64 image runs under emulation, which is slow and can hang (SwiftPM has been seen stuck in dependency checkout at 0% CPU). So `spcc` builds Linux cells natively by default:
+SPI builds Linux, Android and Wasm on amd64. On an Apple Silicon Mac, SPI's amd64 images run under emulation, which is slow and can hang (SwiftPM has been seen stuck in dependency checkout at 0% CPU). So `spcc` builds container cells natively by default:
 
 ```bash
-spcc run -p linux                     # native: swift:X.Y-jammy at this machine's architecture
-spcc run -p linux --linux-mode spi    # SPI parity: spi-images:basic-X.Y, linux/amd64, x86_64 triple
+spcc run -p linux,android,wasm                     # native: official swift images + Swift SDKs at this machine's architecture
+spcc run -p linux,android,wasm --linux-mode spi    # SPI parity: spi-images, linux/amd64
 ```
 
-Native mode is the same Swift release on the same Ubuntu, but it doesn't have SPI's preinstalled C libraries (`libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev`, `libcurl4-openssl-dev`), and on Apple Silicon it builds arm64, not x86_64. When a native result and the SPI badge disagree, rerun with `--linux-mode spi`. The two modes use separate build volumes. Set a default with `linux_mode` in <doc:Configuration>. The run header's `Linux:` line shows which mode ran.
+Native Android and Wasm cells install a pinned Swift SDK into a shared volume (`spi-compat-sdk-cache`) the first time they need it, checking each download's SHA-256: the official swift.org SDKs (Wasm from 6.2, Android from 6.3), and the community bundles SPI itself used before those existed (swiftwasm for Wasm 6.1, finagolfin/swift-android-sdk for Android 6.1–6.2). Each runs on the official image for the exact compiler its SDK was built with. Android also needs the Android NDK r27d, of which `spcc` keeps only the sysroot, clang headers and metadata (about 750 MB). With every version installed the volume holds about 6.6 GB.
+
+SPI's registry no longer allows anonymous pulls (October 2026), so `--linux-mode spi` needs images you already have, or overrides pointing at images you can pull.
+
+Native mode is the same Swift release on the same Ubuntu, but it doesn't have SPI's preinstalled C libraries (`libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev`, `libcurl4-openssl-dev`), and on Apple Silicon it builds arm64, not x86_64. When a native result and the SPI badge disagree, rerun with `--linux-mode spi` if you can. The two modes use separate build volumes. Set a default with `linux_mode` in <doc:Configuration>. The run header's `Linux:` line shows which mode ran.
 
 ## Concurrency and limits
 
@@ -195,7 +199,7 @@ Or persist it in a config file with `container_runtime = "container"` (see <doc:
 
 apple/container reuses the same SPI builder images and produces identical pass/fail results in `spcc`'s smoke tests, but it hasn't been validated against as wide a range of real-world packages as Docker. Pulls happen as an explicit pre-step (deduped across concurrent cells), and `spcc` raises apple/container's 1 GB default memory cap to 8 GB per cell so non-trivial builds don't get OOM-killed. The default limits cover unattended runs; lower them for faster feedback.
 
-Podman is Docker-compatible and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill). It's suited to light packages and smoke checks. Two caveats make it a poor fit for heavy matrices: (1) all concurrent cells share one `podman machine` VM's RAM (`spcc` sets no per-cell cap), so a matrix OOMs unless the machine is sized for ~N × 6 GiB of concurrency — bump it with `podman machine init/set -m <MiB>` or serialize with `--max-parallel 1`; and (2) Podman does not mount Rosetta into `--platform linux/amd64` containers even on the `applehv` provider, so amd64 Swift builds (Android, Wasm, `--linux-mode spi`) run under qemu at roughly **5–6× apple/container's wall-clock** and heavy packages time out. Native Linux cells aren't affected.
+Podman is Docker-compatible and shares Docker's code path (inline `--pull`, `ps --filter` label-based timeout kill). It's suited to light packages and smoke checks. Two caveats make it a poor fit for heavy matrices: (1) all concurrent cells share one `podman machine` VM's RAM (`spcc` sets no per-cell cap), so a matrix OOMs unless the machine is sized for ~N × 6 GiB of concurrency — bump it with `podman machine init/set -m <MiB>` or serialize with `--max-parallel 1`; and (2) Podman does not mount Rosetta into `--platform linux/amd64` containers even on the `applehv` provider, so amd64 Swift builds (`--linux-mode spi`) run under qemu at roughly **5–6× apple/container's wall-clock** and heavy packages time out. Native cells aren't affected.
 
 ## Output modes
 

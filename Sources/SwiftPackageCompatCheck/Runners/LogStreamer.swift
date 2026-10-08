@@ -216,6 +216,10 @@ struct LogStreamer: Sendable {
         if tail.contains("no space left on device") {
             return "the container runtime ran out of disk space; free some (spcc images --remove, spcc clean-all, docker system prune) or raise its disk limit"
         }
+        if tail.contains("swiftpackageindex/spi-images"),
+           tail.contains("access forbidden") || tail.contains("denied") || tail.contains("unauthorized") {
+            return "the registry refused to pull SPI's builder image (registry.gitlab.com/swiftpackageindex/spi-images is no longer public); use --linux-mode native, or an image you can pull via --linux-image-X.Y / --android-image-X.Y / --wasm-image-X.Y"
+        }
         return nil
     }
 

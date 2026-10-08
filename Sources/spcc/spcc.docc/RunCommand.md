@@ -46,11 +46,11 @@ Each of these exists once per Swift version — substitute `6.X` with a concrete
 |------|--------|
 | `--xcode-6.X <path>` | Xcode.app to use for that version's xcodebuild cells. |
 | `--toolchain-6.X <id>` | Toolchain identifier for that version's `macos-spm` cells. |
-| `--linux-mode <mode>` | `native` (default): official `swift:X.Y-jammy` at this machine's architecture. `spi`: SPI's amd64 `basic-X.Y` image, as SPI builds it (emulated on Apple Silicon). |
+| `--linux-mode <mode>` | How container cells (linux, android, wasm) build. `native` (default): official `swift` images at this machine's architecture, with the official (or SPI's original community) Android/Wasm Swift SDKs. `spi`: SPI's amd64 images, as SPI builds them (emulated on Apple Silicon; SPI's registry no longer allows anonymous pulls). |
 | `--linux-image-6.X <ref>` | Override the Linux builder image. |
-| `--android-image-6.X <ref>` | Override the Android builder image (6.1–6.4 only). |
-| `--wasm-image-6.X <ref>` | Override the Wasm builder image (6.1–6.4 only). |
-| `--wasm-sdk-url-6.X <url>` | Override the Wasm SDK fallback download URL (6.1–6.4 only). |
+| `--android-image-6.X <ref>` | Override the Android builder image (6.1–6.4 only). In native mode the image must have the pinned SDK's exact compiler. |
+| `--wasm-image-6.X <ref>` | Override the Wasm builder image (6.1–6.4 only). Same caveat. |
+| `--wasm-sdk-url-6.X <url>` | Override the Wasm SDK fallback download URL (6.1–6.4 only; `--linux-mode spi`). |
 
 ## Execution control
 

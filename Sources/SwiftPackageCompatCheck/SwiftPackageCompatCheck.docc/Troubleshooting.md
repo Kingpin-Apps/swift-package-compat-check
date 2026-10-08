@@ -9,7 +9,8 @@ The most common reasons, in order of frequency:
 1. **The badge is for an older tag.** SPI rebuilds on tag/default-branch push, but the badge image shows the latest result it has — which might be from a release before your fix landed. Compare against the package's "Builds" page at `swiftpackageindex.com/<org>/<pkg>/builds` rather than just the badge.
 2. **iOS/tvOS/watchOS deployment-target drift.** SPI respects the `platforms:` declaration in `Package.swift`. A package that declares `.iOS(.v14)` but uses `Never: Decodable` (iOS 17+) or `Date.ISO8601Format` (iOS 15+) will fail `xcodebuild` on iOS. Run `grep -nE 'error:' <logfile>` to find the exact API and SDK floor.
 3. **Linux failures specific to C interop.** SPI's `:basic-X.Y-latest` image preinstalls a curated dev-lib set — `libsodium-dev`, `libsqlite3-dev`, `libjemalloc-dev`, `libcurl4-openssl-dev`. The official `swift:X.Y-jammy` image that native Linux cells use (the default) has none of them, so a package that links one fails natively but passes on SPI; rerun with `--linux-mode spi` to confirm. If your package needs more than SPI's set, the build fails inside the container with `Could not find <library>` or `Package <pkg> was not found in the pkg-config search path`. The fix is to declare the dependency in the package's system module or add an apt step in your own custom image (`--linux-image-6.X`).
-4. **Native arm64 vs SPI's amd64.** SPI's Linux runners are amd64. By default `spcc` builds Linux natively (arm64 on Apple Silicon), which skips x86_64-only code paths in C dependencies (e.g. blst's asm path). `--linux-mode spi` runs SPI's own `:basic-X.Y-latest` image with `--platform linux/amd64` for an exact match, under emulation on Apple Silicon.
+4. **Native arm64 vs SPI's amd64.** SPI's runners are amd64. By default `spcc` builds container cells natively (arm64 on Apple Silicon), which skips x86_64-only code paths in C dependencies (e.g. blst's asm path). `--linux-mode spi` runs SPI's own images with `--platform linux/amd64` for an exact match, under emulation on Apple Silicon (if you can still pull them; see *A cell fails with "the registry refused to pull SPI's builder image"*).
+5. **Different SDK builds.** Native Android/Wasm cells use the official (or SPI's original community) Swift SDK for each version, pinned to one patch release. SPI's images may carry a different patch or SDK build.
 
 ## Scheme detection picked the wrong target
 
@@ -25,9 +26,9 @@ If detection fails entirely with `No library product backed by a regular Swift t
 
 ## A cell hangs
 
-Container cells can't hang forever: by default each is killed after 60 minutes (`--timeout`), or after 15 minutes without any output (`--stall-timeout`), and the cell reports "timed out" or "stalled". A stall almost always means emulation: an amd64 image (`--linux-mode spi`, Android, Wasm) on Apple Silicon. SwiftPM has been seen stuck in dependency checkout at 0% CPU under emulation. Native Linux cells (the default) avoid it.
+Container cells can't hang forever: by default each is killed after 60 minutes (`--timeout`), or after 15 minutes without any output (`--stall-timeout`), and the cell reports "timed out" or "stalled". A stall almost always means emulation: an amd64 image (`--linux-mode spi`) on Apple Silicon. SwiftPM has been seen stuck in dependency checkout at 0% CPU under emulation. Native cells (the default) avoid it.
 
-The most common cause of a broken (rather than stuck) emulated build is qemu emulation on Apple Silicon for Android/Wasm cells, where the integrated Swift driver's stdin/stdout IPC between `swift` and `swift-frontend` gets a corrupted byte. The build then dies with:
+The most common cause of a broken (rather than stuck) emulated build is qemu emulation on Apple Silicon for `--linux-mode spi` Android/Wasm cells, where the integrated Swift driver's stdin/stdout IPC between `swift` and `swift-frontend` gets a corrupted byte. The build then dies with:
 
 ```
 error: failed parsing the Swift compiler output: unexpected JSON message: {
@@ -57,19 +58,23 @@ container list -q | xargs -r container kill
 
 ## A cell is slow but making progress
 
-Some cells genuinely take a long time, especially Android and Wasm under qemu emulation on Apple Silicon. Rough rules of thumb on an M-series Mac:
+Some cells genuinely take a long time. Rough rules of thumb for native cells on an M-series Mac (`--linux-mode spi` is several times slower):
 
 | Cell | Cold time (large package) | Warm time (rerun) |
 |------|---|---|
 | `macos-spm` | 1-10 s | 1-3 s |
 | `ios` / `tvos` / `watchos` / `visionos` | 5-30 s | 2-10 s |
 | `linux` | 30-60 s (incl. image pull) | 10-20 s |
-| `android` | 60-300 s | 30-90 s |
-| `wasm` | 60-300 s (longer if fallback URL kicks in) | 30-90 s |
+| `android` | 30-150 s (the first cell also downloads the NDK and SDK, ~1 GB) | 10-30 s |
+| `wasm` | 30-150 s (the first cell also downloads the SDK, ~100 MB) | 10-30 s |
 
-If a cell is 5× slower than the table above, it's probably hitting the qemu retry path. Check the log for `Retry N/2 for SDK '<...>'` — if you see this, the retry mechanism is doing its job and the build IS making progress, just over multiple attempts.
+Under `--linux-mode spi`, if a cell is 5× slower than expected, it's probably hitting the qemu retry path. Check the log for `Retry N/2 for SDK '<...>'` — if you see this, the retry mechanism is doing its job and the build IS making progress, just over multiple attempts.
 
-## "No SDK found matching query …" on android/wasm
+## Native android/wasm: an SDK download or checksum fails
+
+The first native Android or Wasm cell for a Swift version downloads its Swift SDK (and, for Android, the NDK) into the `spi-compat-sdk-cache` volume. The log shows `Downloading <url>`, then `Using SDK: <id> (<selector>)`. A `checksum mismatch` error means the file `spcc` got isn't the one it pinned; nothing is installed and the next run retries. To start over, remove the volume: `docker volume rm spi-compat-sdk-cache` (or `spcc clean-all`).
+
+## "No SDK found matching query …" on android/wasm (`--linux-mode spi`)
 
 This means the SPI builder image at `:android-X.Y-latest` or `:wasm-X.Y-latest` doesn't have an SDK named exactly what SPI hardcodes in its Build Command panel (e.g. `aarch64-unknown-linux-android28`). It's not your package's fault.
 
@@ -92,7 +97,11 @@ If none of these appear AND the cell failed with "No SDK found …", file an iss
 
 `spcc` reports this when a cell's log shows `no space left on device`: the container runtime's disk filled while pulling an image or building. Nothing about your package is being tested. SPI's builder images are 5–11 GB each, and a run pulls one per Swift version. Native Linux images are smaller, but still several GB.
 
-Free space with `spcc images --remove` (SPI images), `spcc clean-all` (build volumes) and `docker system prune`, or raise the runtime's disk limit (Docker Desktop → Settings → Resources). Running fewer Swift versions at a time (`-s 6.2`) also lowers the peak.
+Free space with `spcc images --remove` (SPI images), `spcc clean-all` (build volumes and the SDK cache) and `docker system prune`, or raise the runtime's disk limit (Docker Desktop → Settings → Resources). Running fewer Swift versions at a time (`-s 6.2`) also lowers the peak.
+
+## A cell fails with "the registry refused to pull SPI's builder image"
+
+`registry.gitlab.com/swiftpackageindex/spi-images` stopped allowing anonymous pulls in October 2026, so `--linux-mode spi` can't download SPI's images. Use the default `--linux-mode native`, which needs nothing from SPI's registry. If you still have SPI images locally (`spcc images`), `--linux-mode spi` keeps working with them; otherwise point `--linux-image-X.Y`, `--android-image-X.Y` or `--wasm-image-X.Y` at images you can pull.
 
 ## "Could not find executable named 'docker'"
 

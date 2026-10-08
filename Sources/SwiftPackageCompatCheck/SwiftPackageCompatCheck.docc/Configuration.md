@@ -105,7 +105,7 @@ install_container = ["gnupg", "libgcrypt20-dev"]
 | `max_parallel` (`--max-parallel`) | CLI wins | Use config's value | `activeProcessorCount / 2` |
 | `timeout` (`--timeout`) | CLI wins | Use config's value | 3600s (`0` = no limit) |
 | `stall_timeout` (`--stall-timeout`) | CLI wins | Use config's value | 900s (`0` = off) |
-| `linux_mode` (`--linux-mode`) | CLI wins | Use config's value | `native` |
+| `linux_mode` (`--linux-mode`) | CLI wins | Use config's value | `native` (applies to linux, android and wasm cells) |
 | `container_runtime` (`--container-runtime`) | CLI wins | Use config's value | auto-detect (container → docker → podman) |
 | `pull_always` (`--pull-always`) | CLI `||` config | Use config's value | `false` |
 | `test` (`-t` / `--test`) | CLI `||` config | Use config's value | `false` |
