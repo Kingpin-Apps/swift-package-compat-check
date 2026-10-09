@@ -1,10 +1,10 @@
+## 0.9.0 (2026-10-08)
+
+### Feat
+
+- build Android and Wasm cells natively with official Swift SDKs
+
 ## 0.8.0 (2026-09-27)
-
-### Note
-
-- Linux cells now build natively by default: the official `swift:X.Y-jammy` image at this machine's architecture, instead of SPI's amd64 image under emulation (which on Apple Silicon was slow and could hang or corrupt compiler output). Use `--linux-mode spi` (or `linux_mode = "spi"`) for SPI's exact build. The native image lacks SPI's preinstalled C libraries, such as `libsodium-dev`.
-- Linux, Android and Wasm cells now stop after 60 minutes (`--timeout`) or 15 minutes without output (`--stall-timeout`) by default; `0` turns either off. Previously there was no limit.
-- Tab completion for zsh, bash and fish now completes paths, `--linux-mode`, `--container-runtime`, and the `-s` / `-p` lists.
 
 ### Feat
 
